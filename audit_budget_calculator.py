@@ -8,6 +8,7 @@ from datetime import datetime, date
 import io
 import base64
 import json
+import shutil
 import os
 from cloud_storage import CloudStorageManager
 
