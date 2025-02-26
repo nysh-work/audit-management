@@ -342,7 +342,7 @@ def list_backups():
 # Set page config (do this first)
 st.set_page_config(
     page_title="Statutory Audit Budget Calculator & Time Tracker",
-    page_icon="📊",
+    page_icon="streamlit_icon.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
