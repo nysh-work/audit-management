@@ -10,115 +10,97 @@ import base64
 import json
 import os
 
-# SQLite Database Functions
+# --- DATABASE FUNCTIONS ---
+
 def init_db():
+    """Initializes the SQLite database and creates tables if they don't exist."""
     # Create data directory if it doesn't exist
-    os.makedirs('data', exist_ok=True)
-    
-    # Connect to SQLite database
+    os.makedirs('data', exist_ok=True)  # Good practice: ensure 'data' dir exists
+
     conn = sqlite3.connect('data/audit_management.db', check_same_thread=False)
     c = conn.cursor()
-    
+
     # Create projects table if it doesn't exist
     c.execute('''
-    CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE,
-        data TEXT,
-        creation_date TEXT
-    )
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            data TEXT,
+            creation_date TEXT
+        )
     ''')
-    
+
     # Create time_entries table if it doesn't exist
     c.execute('''
-    CREATE TABLE IF NOT EXISTS time_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project TEXT,
-        resource TEXT,
-        phase TEXT,
-        date TEXT,
-        hours REAL,
-        description TEXT,
-        entry_time TEXT
-    )
+        CREATE TABLE IF NOT EXISTS time_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project TEXT,
+            resource TEXT,
+            phase TEXT,
+            date TEXT,
+            hours REAL,
+            description TEXT,
+            entry_time TEXT
+        )
     ''')
-    
+
     conn.commit()
     return conn
 
-# Save projects to database
 def save_projects_to_db():
-    conn = init_db()
+    """Saves projects from session state to the database."""
+    conn = init_db()  # Get the database connection
     c = conn.cursor()
-    
-    # Clear existing projects
-    c.execute("DELETE FROM projects")
-    
-    # Insert all projects
+    c.execute("DELETE FROM projects")  # Clear existing data
+
     for name, project_data in st.session_state.projects.items():
         project_json = json.dumps(project_data)
         creation_date = project_data.get('creation_date', datetime.now().strftime("%Y-%m-%d"))
-        
-        c.execute(
-            "INSERT INTO projects (name, data, creation_date) VALUES (?, ?, ?)",
-            (name, project_json, creation_date)
-        )
-    
+        c.execute("INSERT INTO projects (name, data, creation_date) VALUES (?, ?, ?)",
+                  (name, project_json, creation_date))
+
     conn.commit()
     conn.close()
 
-# Load projects from database
 def load_projects_from_db():
+    """Loads projects from the database into session state."""
     conn = init_db()
     c = conn.cursor()
-    
     c.execute("SELECT name, data FROM projects")
-    results = c.fetchall()
-    
-    projects = {}
-    for name, data in results:
-        projects[name] = json.loads(data)
-    
+    projects = {name: json.loads(data) for name, data in c.fetchall()}
     conn.close()
     return projects
 
-# Save time entries to database
 def save_time_entries_to_db():
+    """Saves time entries from session state to the database."""
     conn = init_db()
     c = conn.cursor()
-    
-    # Clear existing time entries
-    c.execute("DELETE FROM time_entries")
-    
-    # Insert all time entries
+    c.execute("DELETE FROM time_entries")  # Clear existing data
+
     for entry in st.session_state.time_entries:
-        c.execute(
-            "INSERT INTO time_entries (project, resource, phase, date, hours, description, entry_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                entry.get('project', ''),
-                entry.get('resource', ''),
-                entry.get('phase', ''),
-                entry.get('date', ''),
-                entry.get('hours', 0),
-                entry.get('description', ''),
-                entry.get('entry_time', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-        )
-    
+        c.execute("""
+            INSERT INTO time_entries (project, resource, phase, date, hours, description, entry_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            entry.get('project', ''),
+            entry.get('resource', ''),
+            entry.get('phase', ''),
+            entry.get('date', ''),
+            entry.get('hours', 0),
+            entry.get('description', ''),
+            entry.get('entry_time', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        ))
+
     conn.commit()
     conn.close()
 
-# Load time entries from database
 def load_time_entries_from_db():
+    """Loads time entries from the database into session state."""
     conn = init_db()
     c = conn.cursor()
-    
     c.execute("SELECT project, resource, phase, date, hours, description, entry_time FROM time_entries")
-    results = c.fetchall()
-    
-    time_entries = []
-    for project, resource, phase, date, hours, description, entry_time in results:
-        time_entries.append({
+    time_entries = [
+        {
             'project': project,
             'resource': resource,
             'phase': phase,
@@ -126,11 +108,68 @@ def load_time_entries_from_db():
             'hours': hours,
             'description': description,
             'entry_time': entry_time
-        })
-    
+        } for project, resource, phase, date, hours, description, entry_time in c.fetchall()
+    ]
     conn.close()
     return time_entries
 
+
+
+# --- DATA LOADING AND SAVING (Corrected Order) ---
+
+def save_data():
+    """Saves project and time entry data to the database and backup files."""
+    save_projects_to_db()
+    save_time_entries_to_db()
+
+    # Backup to files (optional, for extra safety/compatibility)
+    try:
+        with open('data/projects.json', 'w') as f:  # Save in the 'data' directory
+            json.dump(st.session_state.projects, f)
+
+        df = pd.DataFrame(st.session_state.time_entries)
+        if not df.empty:
+            df.to_csv('data/time_entries.csv', index=False) # Save in 'data' directory
+    except Exception as e:
+        st.error(f"Error saving data to files: {e}")
+
+
+def load_data():
+    """Loads project and time entry data from the database, with fallback to files."""
+    try:
+        # Load from database
+        st.session_state.projects = load_projects_from_db()
+        st.session_state.time_entries = load_time_entries_from_db()
+
+        # Fallback to files if database is empty (for backward compatibility)
+        if not st.session_state.projects and os.path.exists('data/projects.json'):
+            with open('data/projects.json', 'r') as f:
+                st.session_state.projects = json.load(f)
+            save_projects_to_db() # Save loaded data to DB
+
+        if not st.session_state.time_entries and os.path.exists('data/time_entries.csv'):
+            df = pd.read_csv('data/time_entries.csv')
+            st.session_state.time_entries = df.to_dict('records')
+            save_time_entries_to_db() # Save loaded data to DB
+
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        # Consider re-raising the exception or taking other action here
+        # if a loading error is critical.  For a first run, it's okay.
+
+
+# --- STREAMLIT SETUP AND INITIALIZATION ---
+
+# Set page config (do this first)
+st.set_page_config(
+    page_title="Statutory Audit Budget Calculator & Time Tracker",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Apply custom theme (define and apply your custom theme here)
+# ... (Your apply_custom_theme and styled_card functions) ...
 # Define color palette - Medium-inspired dark mode
 COLOR_PRIMARY = "#1e88e5"       # Primary blue
 COLOR_SECONDARY = "#00e676"     # Success green
@@ -140,15 +179,6 @@ COLOR_BACKGROUND = "#121212"    # Main background
 COLOR_CARD_BACKGROUND = "#1e1e1e"  # Lighter background for cards
 COLOR_TEXT = "#e6e6e6"          # Main text color
 COLOR_TEXT_MUTED = "#9e9e9e"    # Muted text color
-
-# Set page config
-st.set_page_config(
-    page_title="Statutory Audit Budget Calculator & Time Tracker",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # Apply custom theme
 def apply_custom_theme():
     # Medium-inspired dark theme
@@ -380,82 +410,32 @@ def styled_card(title, content):
     </div>
     """, unsafe_allow_html=True)
 
-# Initialize session state for storing data
+# Initialize session state (do this before using it)
 if 'projects' not in st.session_state:
     st.session_state.projects = {}
-
 if 'time_entries' not in st.session_state:
     st.session_state.time_entries = []
-
 if 'current_project' not in st.session_state:
     st.session_state.current_project = None
-
-if 'theme' not in st.session_state:
+if 'theme' not in st.session_state:  # Example for theme switching (optional)
     st.session_state.theme = 'dark'
 
-# Function to toggle theme
+# Function to toggle theme (Example - optional)
 def toggle_theme():
     st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
     st.rerun()
 
-# Theme toggle in sidebar
+# Sidebar (optional, but good for navigation/settings)
 with st.sidebar:
     st.title("Audit Management")
-    st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
+    st.button('Toggle Light/Dark Mode', on_click=toggle_theme) #Theme toggle
     st.divider()
 
-# Initialize database
-init_db()
+# --- INITIALIZE AND LOAD DATA ---
+init_db()  # Initialize the database *first*
+load_data() # *Then* load data
 
-# Try to load data at startup
-try:
-    load_data()
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    # First run or database doesn't exist yet
-    pass
-
-# Function to save data to SQLite database
-def save_data():
-    # Save to SQLite
-    save_projects_to_db()
-    save_time_entries_to_db()
-    
-    # Also save to files for backward compatibility
-    try:
-        # Save projects
-        with open('projects.json', 'w') as f:
-            json.dump(st.session_state.projects, f)
-        
-        # Save time entries
-        df = pd.DataFrame(st.session_state.time_entries)
-        if not df.empty:
-            df.to_csv('time_entries.csv', index=False)
-    except Exception as e:
-        st.error(f"Error saving data to files: {e}")
-
-# Function to load data from SQLite database
-def load_data():
-    try:
-        # Load from SQLite
-        st.session_state.projects = load_projects_from_db()
-        st.session_state.time_entries = load_time_entries_from_db()
-        
-        # If no data in SQLite, try to load from files for backward compatibility
-        if not st.session_state.projects and os.path.exists('projects.json'):
-            with open('projects.json', 'r') as f:
-                st.session_state.projects = json.load(f)
-                # Save to SQLite for future use
-                save_projects_to_db()
-        
-        if not st.session_state.time_entries and os.path.exists('time_entries.csv'):
-            df = pd.read_csv('time_entries.csv')
-            st.session_state.time_entries = df.to_dict('records')
-            # Save to SQLite for future use
-            save_time_entries_to_db()
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-
+# ... (Rest of your Streamlit app code) ...
 # Title and navigation
 st.title("Statutory Audit Budget Calculator & Time Tracker")
 
@@ -711,7 +691,7 @@ def calculate_budget(company_name, turnover, is_listed, industry_sector, control
             "info_delay_risk": info_delay_risk
         },
         "creation_date": datetime.now().strftime("%Y-%m-%d"),
-        "financial_year_end": None,  # To be set later
+                "financial_year_end": None,  # To be set later
         "team_members": {},  # To be set later
         "actual_hours": {
             "planning": 0,
@@ -1083,7 +1063,7 @@ with tab2:
                     save_data()
                     
                     st.success("Time entry added successfully!")
-                    st.rerun()
+                    st.rerun()  # Important: Force re-render to update displays
             
             with col2:
                 # Display time entries for this project
@@ -1547,7 +1527,8 @@ with tab4:
                     project_data,
                     values='Hours',
                     names='Project',
-                    title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                    title=f'Hours by Project ({start_date
+                                               .strftime("%d %b")} - {end_date.strftime("%d %b")})',
                     color_discrete_sequence=px.colors.sequential.Blues_r
                 )
                 
@@ -1933,6 +1914,7 @@ def create_dashboard():
     st.plotly_chart(fig, use_container_width=True)
 
 # Add dashboard as the first tab
+#Correct tab definition.
 tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
 
 with tab_dashboard:
