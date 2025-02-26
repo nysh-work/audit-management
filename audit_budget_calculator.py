@@ -344,7 +344,7 @@ st.set_page_config(
     page_title="Statutory Audit Budget Calculator & Time Tracker",
     page_icon="streamlit_icon.png",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 # Define color palette - Medium-inspired dark mode
 COLOR_PRIMARY = "#1e88e5"       # Primary blue
@@ -599,6 +599,13 @@ if 'current_project' not in st.session_state:
     st.session_state.current_project = None
 if 'theme' not in st.session_state:  # Example for theme switching (optional)
     st.session_state.theme = 'dark'
+if 'sidebar_authenticated' not in st.session_state:
+    st.session_state.sidebar_authenticated = False
+if 'sidebar_password_attempt' not in st.session_state:
+    st.session_state.sidebar_password_attempt = False
+
+# Set the sidebar password (you should store this more securely in a real app)
+SIDEBAR_PASSWORD = "audit2025"
 
 # Function to toggle theme (Example - optional)
 def toggle_theme():
@@ -607,6 +614,32 @@ def toggle_theme():
 
 # Sidebar (optional, but good for navigation/settings)
 with st.sidebar:
+    if not st.session_state.sidebar_authenticated:
+        if not st.session_state.sidebar_password_attempt:
+            # Show a button to trigger password entry
+            if st.button("Unlock Sidebar"):
+                st.session_state.sidebar_password_attempt = True
+                # This will trigger a rerun which will show the password field
+        else:
+            # Show password field
+            password = st.text_input("Enter password:", type="password")
+            if st.button("Submit"):
+                if password == SIDEBAR_PASSWORD:
+                    st.session_state.sidebar_authenticated = True
+                    st.rerun()  # Rerun to refresh the sidebar
+                else:
+                    st.error("Incorrect password")
+            
+            # Option to cancel
+            if st.button("Cancel"):
+                st.session_state.sidebar_password_attempt = False
+                st.rerun()
+                
+    # If authenticated, show the actual sidebar content
+    if st.session_state.sidebar_authenticated:
+        st.title("Audit Management")
+        st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
+        st.divider()
     st.title("Audit Management")
     st.button('Toggle Light/Dark Mode', on_click=toggle_theme) #Theme toggle
     st.divider()
