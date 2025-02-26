@@ -24,8 +24,7 @@ st.set_page_config(
     page_title="Statutory Audit Budget Calculator & Time Tracker",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
-    theme="dark"  # Set the theme to dark
+    initial_sidebar_state="expanded"
 )
 
 # Apply custom theme
