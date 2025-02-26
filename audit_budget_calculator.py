@@ -231,6 +231,112 @@ def load_data():
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
+def backup_database():
+    """Creates a timestamped backup of the database."""
+    import os
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    
+    # Define paths
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    backups_dir = os.path.join(app_data_dir, 'backups')
+    
+    # Create backups directory if it doesn't exist
+    os.makedirs(backups_dir, exist_ok=True)
+    
+    # Source database file
+    db_file = os.path.join(data_dir, 'audit_management.db')
+    
+    # Check if database exists
+    if not os.path.exists(db_file):
+        return False, "Database file not found."
+    
+    # Create timestamp for backup filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = os.path.join(backups_dir, f"audit_management_{timestamp}.db")
+    
+    try:
+        # Copy the database file
+        shutil.copy2(db_file, backup_file)
+        
+        # Also backup the JSON and CSV files if they exist
+        json_file = os.path.join(data_dir, 'projects.json')
+        if os.path.exists(json_file):
+            shutil.copy2(json_file, os.path.join(backups_dir, f"projects_{timestamp}.json"))
+            
+        csv_file = os.path.join(data_dir, 'time_entries.csv')
+        if os.path.exists(csv_file):
+            shutil.copy2(csv_file, os.path.join(backups_dir, f"time_entries_{timestamp}.csv"))
+        
+        return True, f"Backup created successfully: audit_management_{timestamp}.db"
+    except Exception as e:
+        return False, f"Backup failed: {str(e)}"
+
+def restore_database(backup_file):
+    """Restores the database from a backup file."""
+    import os
+    import shutil
+    from pathlib import Path
+    
+    # Define paths
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    
+    # Target database file
+    db_file = os.path.join(data_dir, 'audit_management.db')
+    
+    try:
+        # Create a backup of the current database before restoring
+        if os.path.exists(db_file):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            shutil.copy2(db_file, os.path.join(data_dir, f"audit_management_pre_restore_{timestamp}.db"))
+        
+        # Copy the backup file to the database location
+        shutil.copy2(backup_file, db_file)
+        
+        return True, "Database restored successfully. Please restart the application."
+    except Exception as e:
+        return False, f"Restore failed: {str(e)}"
+
+def list_backups():
+    """Lists all available database backups."""
+    import os
+    import glob
+    from pathlib import Path
+    
+    # Define backup directory
+    home_dir = str(Path.home())
+    backups_dir = os.path.join(home_dir, '.audit_management_app', 'backups')
+    
+    # Check if backups directory exists
+    if not os.path.exists(backups_dir):
+        return []
+    
+    # Get all database backup files
+    backup_files = glob.glob(os.path.join(backups_dir, "audit_management_*.db"))
+    
+    # Sort by modification time (most recent first)
+    backup_files.sort(key=os.path.getmtime, reverse=True)
+    
+    # Format the list for display
+    backups = []
+    for file in backup_files:
+        filename = os.path.basename(file)
+        mod_time = datetime.fromtimestamp(os.path.getmtime(file)).strftime("%Y-%m-%d %H:%M:%S")
+        size_mb = os.path.getsize(file) / (1024 * 1024)
+        backups.append({
+            "filename": filename,
+            "path": file,
+            "modified": mod_time,
+            "size_mb": round(size_mb, 2)
+        })
+    
+    return backups
+
 # --- STREAMLIT SETUP AND INITIALIZATION ---
 
 # Set page config (do this first)
@@ -504,6 +610,44 @@ with st.sidebar:
     st.title("Audit Management")
     st.button('Toggle Light/Dark Mode', on_click=toggle_theme) #Theme toggle
     st.divider()
+    
+    # Database management section
+    with st.expander("Database Management", expanded=False):
+        st.caption("Backup and restore your database")
+        
+        # Backup button
+        if st.button("Create Database Backup"):
+            success, message = backup_database()
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+        
+        # Restore from backup
+        st.subheader("Restore from Backup")
+        backups = list_backups()
+        
+        if backups:
+            backup_options = [f"{b['filename']} ({b['modified']})" for b in backups]
+            selected_backup = st.selectbox("Select a backup to restore", backup_options)
+            
+            # Get the selected backup file path
+            selected_index = backup_options.index(selected_backup)
+            selected_file = backups[selected_index]['path']
+            
+            # Confirm restore
+            if st.button("Restore Selected Backup"):
+                confirm = st.checkbox("I understand this will replace the current database")
+                if confirm:
+                    success, message = restore_database(selected_file)
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.warning("Please confirm that you want to restore from backup")
+        else:
+            st.info("No backups found")
 
 # --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
 tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs([
