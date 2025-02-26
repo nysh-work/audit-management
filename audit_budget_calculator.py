@@ -1,4 +1,5 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -8,6 +9,127 @@ import io
 import base64
 import json
 import os
+
+# SQLite Database Functions
+def init_db():
+    # Create data directory if it doesn't exist
+    os.makedirs('data', exist_ok=True)
+    
+    # Connect to SQLite database
+    conn = sqlite3.connect('data/audit_management.db', check_same_thread=False)
+    c = conn.cursor()
+    
+    # Create projects table if it doesn't exist
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE,
+        data TEXT,
+        creation_date TEXT
+    )
+    ''')
+    
+    # Create time_entries table if it doesn't exist
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS time_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT,
+        resource TEXT,
+        phase TEXT,
+        date TEXT,
+        hours REAL,
+        description TEXT,
+        entry_time TEXT
+    )
+    ''')
+    
+    conn.commit()
+    return conn
+
+# Save projects to database
+def save_projects_to_db():
+    conn = init_db()
+    c = conn.cursor()
+    
+    # Clear existing projects
+    c.execute("DELETE FROM projects")
+    
+    # Insert all projects
+    for name, project_data in st.session_state.projects.items():
+        project_json = json.dumps(project_data)
+        creation_date = project_data.get('creation_date', datetime.now().strftime("%Y-%m-%d"))
+        
+        c.execute(
+            "INSERT INTO projects (name, data, creation_date) VALUES (?, ?, ?)",
+            (name, project_json, creation_date)
+        )
+    
+    conn.commit()
+    conn.close()
+
+# Load projects from database
+def load_projects_from_db():
+    conn = init_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT name, data FROM projects")
+    results = c.fetchall()
+    
+    projects = {}
+    for name, data in results:
+        projects[name] = json.loads(data)
+    
+    conn.close()
+    return projects
+
+# Save time entries to database
+def save_time_entries_to_db():
+    conn = init_db()
+    c = conn.cursor()
+    
+    # Clear existing time entries
+    c.execute("DELETE FROM time_entries")
+    
+    # Insert all time entries
+    for entry in st.session_state.time_entries:
+        c.execute(
+            "INSERT INTO time_entries (project, resource, phase, date, hours, description, entry_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry.get('project', ''),
+                entry.get('resource', ''),
+                entry.get('phase', ''),
+                entry.get('date', ''),
+                entry.get('hours', 0),
+                entry.get('description', ''),
+                entry.get('entry_time', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+        )
+    
+    conn.commit()
+    conn.close()
+
+# Load time entries from database
+def load_time_entries_from_db():
+    conn = init_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT project, resource, phase, date, hours, description, entry_time FROM time_entries")
+    results = c.fetchall()
+    
+    time_entries = []
+    for project, resource, phase, date, hours, description, entry_time in results:
+        time_entries.append({
+            'project': project,
+            'resource': resource,
+            'phase': phase,
+            'date': date,
+            'hours': hours,
+            'description': description,
+            'entry_time': entry_time
+        })
+    
+    conn.close()
+    return time_entries
 
 # Define color palette - Medium-inspired dark mode
 COLOR_PRIMARY = "#1e88e5"       # Primary blue
@@ -282,29 +404,55 @@ with st.sidebar:
     st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
     st.divider()
 
-# Function to save data to files
-def save_data():
-    # Save projects
-    with open('projects.json', 'w') as f:
-        json.dump(st.session_state.projects, f)
-    
-    # Save time entries
-    df = pd.DataFrame(st.session_state.time_entries)
-    if not df.empty:
-        df.to_csv('time_entries.csv', index=False)
+# Initialize database
+init_db()
 
-# Function to load data from files
+# Try to load data at startup
+try:
+    load_data()
+except Exception as e:
+    st.error(f"Error loading data: {e}")
+    # First run or database doesn't exist yet
+    pass
+
+# Function to save data to SQLite database
+def save_data():
+    # Save to SQLite
+    save_projects_to_db()
+    save_time_entries_to_db()
+    
+    # Also save to files for backward compatibility
+    try:
+        # Save projects
+        with open('projects.json', 'w') as f:
+            json.dump(st.session_state.projects, f)
+        
+        # Save time entries
+        df = pd.DataFrame(st.session_state.time_entries)
+        if not df.empty:
+            df.to_csv('time_entries.csv', index=False)
+    except Exception as e:
+        st.error(f"Error saving data to files: {e}")
+
+# Function to load data from SQLite database
 def load_data():
     try:
-        # Load projects
-        if os.path.exists('projects.json'):
+        # Load from SQLite
+        st.session_state.projects = load_projects_from_db()
+        st.session_state.time_entries = load_time_entries_from_db()
+        
+        # If no data in SQLite, try to load from files for backward compatibility
+        if not st.session_state.projects and os.path.exists('projects.json'):
             with open('projects.json', 'r') as f:
                 st.session_state.projects = json.load(f)
+                # Save to SQLite for future use
+                save_projects_to_db()
         
-        # Load time entries
-        if os.path.exists('time_entries.csv'):
+        if not st.session_state.time_entries and os.path.exists('time_entries.csv'):
             df = pd.read_csv('time_entries.csv')
             st.session_state.time_entries = df.to_dict('records')
+            # Save to SQLite for future use
+            save_time_entries_to_db()
     except Exception as e:
         st.error(f"Error loading data: {e}")
 
