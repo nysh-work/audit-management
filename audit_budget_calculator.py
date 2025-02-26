@@ -244,7 +244,7 @@ def load_data():
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
-def backup_database(event, context):
+def backup_database(event = none, context = none):
     """Cloud Function triggered by Cloud Scheduler to backup the database."""
     # Set up variables
     bucket_name = os.environ.get('audit-app-storage')
