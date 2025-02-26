@@ -10,8 +10,7 @@ import base64
 import json
 import os
 
-# --- DATABASE FUNCTIONS ---
-
+# --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
     # Create data directory if it doesn't exist
@@ -167,9 +166,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Apply custom theme (define and apply your custom theme here)
-# ... (Your apply_custom_theme and styled_card functions) ...
 # Define color palette - Medium-inspired dark mode
 COLOR_PRIMARY = "#1e88e5"       # Primary blue
 COLOR_SECONDARY = "#00e676"     # Success green
@@ -409,7 +405,6 @@ def styled_card(title, content):
         {content}
     </div>
     """, unsafe_allow_html=True)
-
 # Initialize session state (do this before using it)
 if 'projects' not in st.session_state:
     st.session_state.projects = {}
@@ -435,277 +430,215 @@ with st.sidebar:
 init_db()  # Initialize the database *first*
 load_data() # *Then* load data
 
-# ... (Rest of your Streamlit app code) ...
-# Title and navigation
-st.title("Statutory Audit Budget Calculator & Time Tracker")
 
-# Create tabs for different sections
-tab1, tab2, tab3, tab4 = st.tabs(["Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
+# --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
+tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs([
+    "Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"
+])
 
-# Define industry sector definitions and factors
-industry_sectors = {
-    "MFG": {"name": "Manufacturing", "factor": 1.0},
-    "TRD": {"name": "Trading", "factor": 0.9},
-    "SER": {"name": "Services", "factor": 0.95},
-    "FIN": {"name": "Financial Services", "factor": 1.3},
-    "REC": {"name": "Real Estate and Construction", "factor": 1.2},
-    "NGO": {"name": "Not for profit", "factor": 0.85}
-}
+# --- DASHBOARD FUNCTION (Content for the Dashboard Tab) ---
 
-# Detailed time estimates based on size and sector (same as in the original code)
-detailed_time_estimates = {
-    # Small category
-    "SMFG": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
-    "STRD": {"planning": 48, "fieldwork": 240, "managerReview": 48, "partnerReview": 24, "total": 360},
-    "SSER": {"planning": 48, "fieldwork": 240, "managerReview": 48, "partnerReview": 24, "total": 360},
-    "SREC": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
-    
-    # Medium category
-    "MMFG": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
-    "MTRD": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
-    "MSER": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
-    "MFIN": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
-    "MREC": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
-    
-    # Large category
-    "LMFG": {"planning": 120, "fieldwork": 528, "managerReview": 96, "partnerReview": 96, "total": 840},
-    "LTRD": {"planning": 72, "fieldwork": 360, "managerReview": 72, "partnerReview": 96, "total": 600},
-    "LSER": {"planning": 72, "fieldwork": 360, "managerReview": 72, "partnerReview": 96, "total": 600},
-    "LFIN": {"planning": 120, "fieldwork": 480, "managerReview": 120, "partnerReview": 120, "total": 840},
-    "LREC": {"planning": 120, "fieldwork": 480, "managerReview": 120, "partnerReview": 120, "total": 840},
-    
-    # Very Large category
-    "VLMFG": {"planning": 120, "fieldwork": 600, "managerReview": 120, "partnerReview": 120, "total": 960},
-    "VLSER": {"planning": 72, "fieldwork": 600, "managerReview": 72, "partnerReview": 96, "total": 840},
-    "VLFIN": {"planning": 72, "fieldwork": 600, "managerReview": 144, "partnerReview": 144, "total": 960},
-    "VLREC": {"planning": 120, "fieldwork": 600, "managerReview": 120, "partnerReview": 120, "total": 960}
-}
+def create_dashboard():
+    """Creates the content for the dashboard tab."""
 
-# Default time for combinations not specified (using small manufacturing as default)
-default_time_estimate = {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480}
+    st.markdown("### Dashboard")
+    st.markdown("Overview of all audit projects and team activities.")
 
-# Staff roles
-staff_roles = ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article", "EQCR"]
-
-# Audit phases
-audit_phases = ["Planning", "Fieldwork", "Manager Review", "Partner Review"]
-
-# Get list of available projects for selection
-def get_project_list():
+    # Check if projects exist
     if not st.session_state.projects:
-        return ["No projects available"]
-    return list(st.session_state.projects.keys())
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+        return  # Exit early if no projects
 
-# Calculate budget based on inputs
-def calculate_budget(company_name, turnover, is_listed, industry_sector, controls_risk, inherent_risk, complexity, info_delay_risk):
-    # Determine audit category based on turnover
-    if turnover <= 50:
-        audit_category = "micro"
-        audit_category_display = "Micro (≤ Rs. 50 Cr)"
-    elif turnover <= 250:
-        audit_category = "small"
-        audit_category_display = "Small (Rs. 50-250 Cr)"
-    elif turnover <= 500:
-        audit_category = "medium"
-        audit_category_display = "Medium (Rs. 250-500 Cr)"
-    elif turnover <= 1000:
-        audit_category = "large"
-        audit_category_display = "Large (Rs. 500-1000 Cr)"
-    else:
-        audit_category = "veryLarge"
-        audit_category_display = "Very Large (> Rs. 1000 Cr)"
-    
-    # Get the lookup key based on size and sector
-    size_prefix = "S" if audit_category in ["micro", "small"] else "M" if audit_category == "medium" else "L" if audit_category == "large" else "VL"
-    lookup_key = size_prefix + industry_sector
-    
-    # Get baseline hours from detailed estimates or fall back to default
-    baseline_estimate = detailed_time_estimates.get(lookup_key, default_time_estimate)
-    
-    # Extract phase hours
-    base_planning = baseline_estimate["planning"]
-    base_fieldwork = baseline_estimate["fieldwork"]
-    base_manager_review = baseline_estimate["managerReview"]
-    base_partner_review = baseline_estimate["partnerReview"]
-    base_total = baseline_estimate["total"]
-    
-    # Apply 0.8 scaling factor for Micro category
-    if audit_category == "micro":
-        base_planning = round(base_planning * 0.8)
-        base_fieldwork = round(base_fieldwork * 0.8)
-        base_manager_review = round(base_manager_review * 0.8)
-        base_partner_review = round(base_partner_review * 0.8)
-        base_total = round(base_total * 0.8)
-    
-    # Risk adjustment multipliers
-    controls_risk_factor = 1 if controls_risk == 1 else (1.2 if controls_risk == 2 else 1.4)
-    inherent_risk_factor = 1 if inherent_risk == 1 else (1.25 if inherent_risk == 2 else 1.5)
-    complexity_factor = 1 if complexity == 1 else (1.3 if complexity == 2 else 1.6)
-    info_delay_factor = 1 if info_delay_risk == 1 else (1.15 if info_delay_risk == 2 else 1.3)
-    
-    # Calculate adjusted phase hours
-    adjusted_planning = round(base_planning * controls_risk_factor * inherent_risk_factor)
-    adjusted_fieldwork = round(base_fieldwork * controls_risk_factor * inherent_risk_factor * complexity_factor * info_delay_factor)
-    adjusted_manager_review = round(base_manager_review * complexity_factor)
-    adjusted_partner_review = round(base_partner_review * complexity_factor)
-    
-    # Set phase hours
-    phase_hours = {
-        "planning": adjusted_planning,
-        "fieldwork": adjusted_fieldwork,
-        "managerReview": adjusted_manager_review,
-        "partnerReview": adjusted_partner_review
-    }
-    
-    # Calculate total adjusted hours
-    total_hours = adjusted_planning + adjusted_fieldwork + adjusted_manager_review + adjusted_partner_review
-    total_days = round(total_hours / 8 * 10) / 10  # Round to 1 decimal place
-    
-    # Staff allocation
-    staff_hours = {
-        "partner": phase_hours["partnerReview"],
-        "manager": phase_hours["managerReview"],
-        "qualifiedAssistant": 0,
-        "seniorArticle": 0,
-        "juniorArticle": 0,
-        "eqcr": 0,
-    }
-    
-    # Add planning hours based on audit size
-    if audit_category in ["medium", "large", "veryLarge"]:
-        # Partner gets 30% of planning hours for larger audits
-        staff_hours["partner"] += round(phase_hours["planning"] * 0.3)
-        # Manager gets 30% of planning hours for larger audits
-        staff_hours["manager"] += round(phase_hours["planning"] * 0.3)
-    else:
-        # For small and micro, only manager is involved in planning (no partner)
-        staff_hours["manager"] += round(phase_hours["planning"] * 0.4)
-    
-    # Qualified Assistant hours
-    if audit_category in ["medium", "large", "veryLarge"]:
-        # For larger audits, QA gets 40% of planning
-        staff_hours["qualifiedAssistant"] = round(
-            phase_hours["planning"] * 0.4 + 
-            phase_hours["fieldwork"] * 0.3
-        )
-    else:
-        # For smaller audits, QA gets 60% of planning
-        staff_hours["qualifiedAssistant"] = round(
-            phase_hours["planning"] * 0.6 + 
-            phase_hours["fieldwork"] * 0.3
-        )
-    
-    # Senior Article hours - not allocated for Micro audits
-    if audit_category != "micro":
-        staff_hours["seniorArticle"] = round(
-            phase_hours["planning"] * 0.3 + 
-            phase_hours["fieldwork"] * 0.4
-        )
-    
-    # Junior Article hours
-    junior_article_count = 2 if audit_category == "veryLarge" else 1
-    
-    if junior_article_count == 1:
-        # Single junior article
-        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
-    else:
-        # Two junior articles for very large audits
-        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
-    
-    # Add EQCR hours if required
-    eqcr_required = is_listed or turnover > 1000
-    if eqcr_required:
-        staff_hours["eqcr"] = round(staff_hours["partner"] * 0.4)
-    
-    # Create detailed staff allocation by phase
-    staff_allocation_by_phase = {
-        "planning": {},
-        "fieldwork": {},
-        "managerReview": {},
-        "partnerReview": {}
-    }
-    
-    # Planning phase allocation
-    if audit_category in ["medium", "large", "veryLarge"]:
-        # For larger audits
-        staff_allocation_by_phase["planning"]["partner"] = round(phase_hours["planning"] * 0.3)
-        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.3)
-        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.4)
-        if audit_category != "micro":
-            staff_allocation_by_phase["planning"]["seniorArticle"] = round(phase_hours["planning"] * 0.3)
-    else:
-        # For smaller audits
-        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.4)
-        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.6)
-    
-    # Fieldwork phase allocation
-    staff_allocation_by_phase["fieldwork"]["qualifiedAssistant"] = round(phase_hours["fieldwork"] * 0.3)
-    if audit_category != "micro":
-        staff_allocation_by_phase["fieldwork"]["seniorArticle"] = round(phase_hours["fieldwork"] * 0.4)
-    
-    if junior_article_count == 1:
-        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
-    else:
-        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
-    
-    # Manager Review phase - all to manager
-    staff_allocation_by_phase["managerReview"]["manager"] = phase_hours["managerReview"]
-    
-    # Partner Review phase - all to partner
-    staff_allocation_by_phase["partnerReview"]["partner"] = phase_hours["partnerReview"]
-    
-    # EQCR if required
-    if eqcr_required:
-        staff_allocation_by_phase["partnerReview"]["eqcr"] = round(staff_hours["partner"] * 0.4)
-    
-    # Generate risk adjustment notes
-    risk_notes = [
-        f"Size-Sector Baseline: {lookup_key}{' (scaled to 80% for Micro)' if audit_category == 'micro' else ''}",
-        f"Base Hours: Planning: {base_planning}h, Fieldwork: {base_fieldwork}h, Manager Review: {base_manager_review}h, Partner Review: {base_partner_review}h",
-        f"Controls Risk: {'Low' if controls_risk == 1 else ('Medium' if controls_risk == 2 else 'High')} (factor: {controls_risk_factor:.2f})",
-        f"Inherent Risk: {'Low' if inherent_risk == 1 else ('Medium' if inherent_risk == 2 else 'High')} (factor: {inherent_risk_factor:.2f})",
-        f"Complexity: {'Low' if complexity == 1 else ('Medium' if complexity == 2 else 'High')} (factor: {complexity_factor:.2f})",
-        f"Information Delay Risk: {'Low' if info_delay_risk == 1 else ('Medium' if info_delay_risk == 2 else 'High')} (factor: {info_delay_factor:.2f})",
-    ]
-    
-    # Create result dictionary
-    result = {
-        "company_name": company_name,
-        "turnover": turnover,
-        "industry_sector": industry_sector,
-        "industry_name": industry_sectors[industry_sector]["name"],
-        "is_listed": is_listed,
-        "audit_category": audit_category,
-        "audit_category_display": audit_category_display,
-        "phase_hours": phase_hours,
-        "total_hours": total_hours,
-        "total_days": total_days,
-        "staff_hours": staff_hours,
-        "staff_allocation_by_phase": staff_allocation_by_phase,
-        "eqcr_required": eqcr_required,
-        "risk_notes": risk_notes,
-        "risk_factors": {
-            "controls_risk": controls_risk,
-            "inherent_risk": inherent_risk,
-            "complexity": complexity,
-            "info_delay_risk": info_delay_risk
-        },
-        "creation_date": datetime.now().strftime("%Y-%m-%d"),
-                "financial_year_end": None,  # To be set later
-        "team_members": {},  # To be set later
-        "actual_hours": {
-            "planning": 0,
-            "fieldwork": 0,
-            "managerReview": 0,
-            "partnerReview": 0,
-            "total": 0
+    # Summary metrics
+    projects_count = len(st.session_state.projects)
+    total_planned_hours = sum(project.get('total_hours', 0) for project in st.session_state.projects.values())
+    total_actual_hours = sum(project.get('actual_hours', {}).get('total', 0) for project in st.session_state.projects.values())
+
+    # Team members (deduplicated using a set)
+    all_team_members = set()
+    for project in st.session_state.projects.values():
+        if 'team_members' in project:
+            all_team_members.update(member for member in project['team_members'].values() if member)
+
+
+    # Create metrics layout
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Summary Metrics</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Total Projects", f"{projects_count}")
+    with col2:
+        st.metric("Total Team Members", f"{len(all_team_members)}")
+    with col3:
+        st.metric("Total Planned Hours", f"{total_planned_hours}")
+    with col4:
+        completion_pct = round((total_actual_hours / total_planned_hours * 100) if total_planned_hours else 0)
+        st.metric("Overall Completion", f"{completion_pct}%", f"{total_actual_hours} hours")
+
+
+    # Project status overview
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Project Status Overview</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Create project status dataframe (using a list comprehension)
+    project_status = [
+        {
+            "Project": name,
+            "Category": project.get('audit_category_display', ''),
+            "Industry": project.get('industry_name', ''),
+            "Planned Hours": project.get('total_hours', 0),
+            "Actual Hours": project.get('actual_hours', {}).get('total', 0),
+            "Completion": f"{round((project.get('actual_hours', {}).get('total', 0) / project.get('total_hours', 1) * 100),2) if project.get('total_hours', 1) else 0}%",  # Avoid division by zero
+            "Status": "Completed" if project.get('actual_hours', {}).get('total', 0) >= project.get('total_hours', 0) * 0.95 else "In Progress" if project.get('actual_hours', {}).get('total', 0) > 0 else "Not Started"
         }
-    }
-    
-    return result
+        for name, project in st.session_state.projects.items()
+    ]
 
-# Tab 1: Budget Calculator
+    status_df = pd.DataFrame(project_status)
+    st.dataframe(status_df, hide_index=True, use_container_width=True)
+
+
+    # Recent activity
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Recent Activity</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Get recent time entries (sorted by entry_time, descending)
+    recent_entries = sorted(
+        st.session_state.time_entries,
+        key=lambda x: x.get('entry_time', ''),
+        reverse=True
+    )[:10]
+
+    if recent_entries:
+        recent_df = pd.DataFrame(recent_entries)
+        # Consistent phase mapping
+        phase_map = {
+            "planning": "Planning",
+            "fieldwork": "Fieldwork",
+            "managerReview": "Manager Review",
+            "partnerReview": "Partner Review"
+        }
+        recent_df['phase'] = recent_df['phase'].map(phase_map)  # Apply the mapping
+
+        recent_df['entry_time'] = pd.to_datetime(recent_df['entry_time'])
+        st.dataframe(
+            recent_df[['entry_time', 'project', 'resource', 'phase', 'hours']],
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("No time entries recorded yet.")
+
+
+    # Team utilization chart
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Team Utilization</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Aggregate hours by team member (using a dictionary)
+    team_hours = {}
+    for entry in st.session_state.time_entries:
+        resource = entry.get('resource', 'Unknown')
+        hours = entry.get('hours', 0)
+        team_hours[resource] = team_hours.get(resource, 0) + hours
+
+    if team_hours:
+        team_df = pd.DataFrame(
+            {'Team Member': list(team_hours.keys()), 'Hours': list(team_hours.values())}
+        ).sort_values('Hours', ascending=False)
+
+        fig = px.bar(
+            team_df,
+            y='Team Member',
+            x='Hours',
+            title='Total Hours by Team Member',
+            orientation='h',
+            color='Hours',
+            color_continuous_scale='Blues'
+        )
+
+        fig.update_layout(
+            xaxis_title="Hours",
+            yaxis_title="",
+            height=400,
+            plot_bgcolor=COLOR_CARD_BACKGROUND,
+            paper_bgcolor=COLOR_CARD_BACKGROUND,
+            font_color=COLOR_TEXT,
+            title_font_color=COLOR_TEXT
+        )
+        fig.update_xaxes(color=COLOR_TEXT)
+        fig.update_yaxes(color=COLOR_TEXT)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No time entries recorded yet.")
+
+
+    # Hours by audit phase (Corrected Phase Aggregation)
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Hours by Audit Phase</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Aggregate hours by phase
+    phase_hours = {"planning": 0, "fieldwork": 0, "managerReview": 0, "partnerReview": 0}
+    for entry in st.session_state.time_entries:
+      phase = entry.get('phase')
+      if phase in phase_hours:  # Only count known phases
+          phase_hours[phase] += entry.get('hours', 0)
+
+
+    phase_data = [
+        {"Phase": phase_map[phase], "Hours": hours}  # Use the consistent mapping
+        for phase, hours in phase_hours.items()
+        if hours > 0  # Only include phases with actual hours
+    ]
+
+    if phase_data:  # Check if there's any data before creating the chart
+      phase_df = pd.DataFrame(phase_data)
+      fig = px.pie(
+          phase_df,
+          values='Hours',
+          names='Phase',
+          title='Distribution of Hours by Audit Phase',
+          hole=0.4,
+          color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+      )
+      fig.update_traces(textposition='inside', textinfo='percent+label')
+      fig.update_layout(
+          height=400,
+          plot_bgcolor=COLOR_CARD_BACKGROUND,
+          paper_bgcolor=COLOR_CARD_BACKGROUND,
+          font_color=COLOR_TEXT,
+          title_font_color=COLOR_TEXT
+      )
+      st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No time entries recorded yet.")
+
+
+
+
+# --- TAB CONTENT (Using 'with' blocks for each tab) ---
+
+with tab_dashboard:
+    create_dashboard()  # Call the function to populate the dashboard *inside* its tab
+
 with tab1:
+    # ... (Your existing code for tab1 - Budget Calculator) ...
     st.markdown("### Audit Budget Calculator")
     st.markdown("Calculate audit budgets based on company size, industry, and risk factors.")
     
@@ -873,7 +806,7 @@ with tab1:
                         st.metric(
                             phase_name,
                             f"{planned}h planned",
-                            delta=f"{actual}h logged" if actual > 0 else "No hours logged"
+                                                        delta=f"{actual}h logged" if actual > 0 else "No hours logged"
                         )
                 
                 # Staff allocation
@@ -971,11 +904,11 @@ with tab1:
                     
                     st.plotly_chart(fig, use_container_width=True)
 
-# Tab 2: Time Tracking
 with tab2:
+    # ... (Your existing code for tab2 - Time Tracking) ...
     st.markdown("### Time Tracking")
     st.markdown("Log and view time entries for each project and team member.")
-    
+
     # Project selection
     project_options = get_project_list()
     if "No projects available" not in project_options:
@@ -984,10 +917,10 @@ with tab2:
             options=project_options,
             key="time_tracking_project"
         )
-        
+
         if selected_project in st.session_state.projects:
             project = st.session_state.projects[selected_project]
-            
+
             # Display project info
             st.markdown(f"""
             <div class="custom-card">
@@ -997,10 +930,10 @@ with tab2:
                 <p><strong>Financial Year End:</strong> {project['financial_year_end']}</p>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # Create columns for time entry form
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 # Time entry form
                 st.markdown("""
@@ -1008,11 +941,12 @@ with tab2:
                     <h3 class="card-title">Add Time Entry</h3>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Get the list of team members for this project
-                team_members = [v for k, v in project['team_members'].items() if v]
+
+                # Get the list of team members for this project (handling potential missing keys)
+                team_members = [v for k, v in project.get('team_members', {}).items() if v]
                 selected_resource = st.selectbox("Team Member", options=team_members)
-                
+
+
                 # Map phase keys to display names
                 phase_options = {
                     "planning": "Planning",
@@ -1020,33 +954,33 @@ with tab2:
                     "managerReview": "Manager Review",
                     "partnerReview": "Partner Review"
                 }
-                
+
                 selected_phase = st.selectbox(
                     "Audit Phase",
                     options=list(phase_options.keys()),
                     format_func=lambda x: phase_options[x]
                 )
-                
+
                 entry_date = st.date_input("Date", datetime.now().date())
                 hours_spent = st.number_input("Hours Spent", min_value=0.1, max_value=24.0, value=8.0, step=0.5)
                 description = st.text_area("Description", "")
-                
+
                 if st.button("Add Time Entry", key="add_time_entry"):
                     # Create time entry
                     time_entry = {
                         "project": selected_project,
                         "resource": selected_resource,
                         "phase": selected_phase,
-                        "date": entry_date.strftime("%Y-%m-%d"),
+                        "date": entry_date.strftime("%Y-%m-%d"),  # Consistent date format
                         "hours": hours_spent,
                         "description": description,
-                        "entry_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "entry_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Consistent datetime format
                     }
-                    
+
                     # Add to time entries list
                     st.session_state.time_entries.append(time_entry)
-                    
-                    # Update actual hours in project
+
+                    # Update actual hours in project (handling missing 'actual_hours')
                     if 'actual_hours' not in project:
                         project['actual_hours'] = {
                             "planning": 0,
@@ -1055,16 +989,15 @@ with tab2:
                             "partnerReview": 0,
                             "total": 0
                         }
-                    
-                    project['actual_hours'][selected_phase] += hours_spent
-                    project['actual_hours']['total'] += hours_spent
-                    
+                    project['actual_hours'][selected_phase] = project['actual_hours'].get(selected_phase, 0) + hours_spent
+                    project['actual_hours']['total'] = project['actual_hours'].get('total', 0) + hours_spent
+
                     # Save data
                     save_data()
-                    
+
                     st.success("Time entry added successfully!")
-                    st.rerun()  # Important: Force re-render to update displays
-            
+                    st.rerun() #Important
+
             with col2:
                 # Display time entries for this project
                 st.markdown("""
@@ -1072,29 +1005,29 @@ with tab2:
                     <h3 class="card-title">Recent Time Entries</h3>
                 </div>
                 """, unsafe_allow_html=True)
-                
+
                 # Filter time entries for this project
                 project_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
-                
+
                 if project_entries:
                     entries_df = pd.DataFrame(project_entries)
                     entries_df = entries_df.sort_values('date', ascending=False)
-                    
+
                     # Format columns for display
                     display_df = entries_df[['date', 'resource', 'phase', 'hours', 'description']].copy()
-                    display_df['phase'] = display_df['phase'].map(lambda x: phase_options.get(x, x))
-                    
+                    display_df['phase'] = display_df['phase'].map(phase_options)  # Use the phase_options mapping
+
                     st.dataframe(display_df, hide_index=True, use_container_width=True)
                 else:
                     st.info("No time entries found for this project.")
     else:
-        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+        st.info("No projects available.  Please create a project in the Budget Calculator tab first.")
 
-# Tab 3: Project Reports
 with tab3:
+    # ... (Your existing code for tab3 - Project Reports) ...
     st.markdown("### Project Reports")
     st.markdown("View detailed reports on project progress and time utilization.")
-    
+
     # Project selection
     project_options = get_project_list()
     if "No projects available" not in project_options:
@@ -1103,106 +1036,96 @@ with tab3:
             options=project_options,
             key="project_report_selection"
         )
-        
+
         if selected_project in st.session_state.projects:
             project = st.session_state.projects[selected_project]
-            
+
             # Display project overview
             st.markdown(f"""
             <div class="custom-card">
                 <h3 class="card-title">Project Overview: {project['company_name']}</h3>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # Create columns for metrics
             metrics_cols = st.columns(4)
-            
+
             with metrics_cols[0]:
                 st.metric("Turnover", f"Rs. {project['turnover']} Cr")
-            
             with metrics_cols[1]:
                 st.metric("Industry", project['industry_name'])
-            
             with metrics_cols[2]:
                 st.metric("Category", project['audit_category_display'])
-            
             with metrics_cols[3]:
                 st.metric("Listed", "Yes" if project['is_listed'] else "No")
-            
+
             # Progress metrics
             st.markdown("""
             <div class="custom-card">
                 <h3 class="card-title">Progress Metrics</h3>
             </div>
             """, unsafe_allow_html=True)
-            
+
             progress_cols = st.columns(3)
-            
             # Calculate total progress
             total_planned = project['total_hours']
             total_actual = project.get('actual_hours', {}).get('total', 0)
             total_progress = (total_actual / total_planned * 100) if total_planned > 0 else 0
-            
+
             with progress_cols[0]:
                 st.metric("Overall Progress", f"{round(total_progress)}%")
-            
             with progress_cols[1]:
                 st.metric("Planned Hours", total_planned)
-            
+
             with progress_cols[2]:
                 delta = total_actual - total_planned
                 delta_color = "normal" if delta <= 0 else "inverse"
                 st.metric("Actual Hours", total_actual, delta=delta, delta_color=delta_color)
-            
+
+
+
             # Phase progress visualization
             st.markdown("""
             <div class="custom-card">
                 <h3 class="card-title">Progress by Phase</h3>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Prepare data for phase progress
-            phase_data = []
-            for phase_key, phase_name in {
-                "planning": "Planning",
-                "fieldwork": "Fieldwork",
-                "managerReview": "Manager Review",
-                "partnerReview": "Partner Review"
-            }.items():
-                planned = project['phase_hours'][phase_key]
-                actual = project.get('actual_hours', {}).get(phase_key, 0)
-                progress = (actual / planned * 100) if planned > 0 else 0
-                
-                phase_data.append({
+
+            # Prepare data for phase progress (using a list comprehension)
+            phase_data = [
+                {
                     "Phase": phase_name,
-                    "Planned Hours": planned,
-                    "Actual Hours": actual,
-                    "Progress": progress
-                })
-            
+                    "Planned Hours": project['phase_hours'][phase_key],
+                    "Actual Hours": project.get('actual_hours', {}).get(phase_key, 0),
+                    "Progress": (project.get('actual_hours', {}).get(phase_key, 0) / project['phase_hours'][phase_key] * 100) if project['phase_hours'][phase_key] > 0 else 0
+                }
+                for phase_key, phase_name in {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }.items()
+            ]
+
             phase_df = pd.DataFrame(phase_data)
-            
-            # Create horizontal bar chart for phase progress with dark mode styling
+
+            # Create horizontal bar chart for phase progress
             fig = go.Figure()
-            
-            # Add planned hours bars
             fig.add_trace(go.Bar(
                 y=phase_df['Phase'],
                 x=phase_df['Planned Hours'],
                 name='Planned Hours',
                 orientation='h',
-                marker=dict(color='rgba(30, 136, 229, 0.5)')
+                marker=dict(color='rgba(30, 136, 229, 0.5)')  # Use named colors or rgba
             ))
-            
-            # Add actual hours bars
             fig.add_trace(go.Bar(
                 y=phase_df['Phase'],
                 x=phase_df['Actual Hours'],
                 name='Actual Hours',
                 orientation='h',
-                marker=dict(color='rgba(0, 230, 118, 0.8)')
+                marker=dict(color='rgba(0, 230, 118, 0.8)')  # Use named colors or rgba
             ))
-            
+
             fig.update_layout(
                 title='Planned vs. Actual Hours by Phase',
                 barmode='overlay',
@@ -1212,67 +1135,60 @@ with tab3:
                 plot_bgcolor=COLOR_CARD_BACKGROUND,
                 paper_bgcolor=COLOR_CARD_BACKGROUND,
                 font_color=COLOR_TEXT,
-                title_font_color=COLOR_TEXT
+                title_font_color = COLOR_TEXT
             )
-            
             fig.update_xaxes(color=COLOR_TEXT)
             fig.update_yaxes(color=COLOR_TEXT)
-            
             st.plotly_chart(fig, use_container_width=True)
-            
+
+
             # Resource utilization
             st.markdown("""
             <div class="custom-card">
                 <h3 class="card-title">Resource Utilization</h3>
             </div>
             """, unsafe_allow_html=True)
-            
-            # Get time entries by resource
+
+            # Get time entries by resource (using a dictionary)
             resource_hours = {}
-            
             for entry in st.session_state.time_entries:
                 if entry.get('project') == selected_project:
                     resource = entry.get('resource')
                     hours = entry.get('hours', 0)
-                    
                     if resource not in resource_hours:
                         resource_hours[resource] = {
-                            "total": 0,
-                            "planning": 0,
-                            "fieldwork": 0,
-                            "managerReview": 0,
-                            "partnerReview": 0
+                            "total": 0, "planning": 0, "fieldwork": 0,
+                            "managerReview": 0, "partnerReview": 0
                         }
-                    
                     resource_hours[resource]['total'] += hours
                     resource_hours[resource][entry.get('phase', 'other')] += hours
-            
-            # Create resource utilization data
-            resource_data = []
-            for resource, hours in resource_hours.items():
-                resource_data.append({
+
+            # Create resource utilization data (using a list comprehension)
+            resource_data = [
+                {
                     "Resource": resource,
                     "Total Hours": hours['total'],
                     "Planning": hours['planning'],
                     "Fieldwork": hours['fieldwork'],
                     "Manager Review": hours['managerReview'],
                     "Partner Review": hours['partnerReview']
-                })
-            
+                }
+                for resource, hours in resource_hours.items()
+            ]
+
             if resource_data:
                 resource_df = pd.DataFrame(resource_data)
                 st.dataframe(resource_df, hide_index=True, use_container_width=True)
-                
-                # Create stacked bar chart for resource utilization with dark mode styling
+
+                # Create stacked bar chart for resource utilization
                 fig = px.bar(
-                    resource_df, 
-                    x="Resource", 
+                    resource_df,
+                    x="Resource",
                     y=["Planning", "Fieldwork", "Manager Review", "Partner Review"],
                     title="Hours Breakdown by Resource",
                     barmode='stack',
-                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
                 )
-                
                 fig.update_layout(
                     xaxis_title="Team Member",
                     yaxis_title="Hours",
@@ -1281,44 +1197,42 @@ with tab3:
                     plot_bgcolor=COLOR_CARD_BACKGROUND,
                     paper_bgcolor=COLOR_CARD_BACKGROUND,
                     font_color=COLOR_TEXT,
-                    title_font_color=COLOR_TEXT
+                    title_font_color = COLOR_TEXT
                 )
-                
                 fig.update_xaxes(color=COLOR_TEXT)
                 fig.update_yaxes(color=COLOR_TEXT)
-                
+
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No time entries recorded yet for this project.")
-            
+
+
             # Timeline view
             st.markdown("""
             <div class="custom-card">
                 <h3 class="card-title">Project Timeline</h3>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # Filter time entries for this project
             timeline_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
-            
+
             if timeline_entries:
-                # Create DataFrame for timeline
                 timeline_df = pd.DataFrame(timeline_entries)
                 timeline_df['date'] = pd.to_datetime(timeline_df['date'])
-                
+
                 # Group by date and phase
                 daily_hours = timeline_df.groupby(['date', 'phase']).agg({'hours': 'sum'}).reset_index()
-                
-                # Map phase names
+
+                # Consistent phase mapping
                 phase_map = {
                     "planning": "Planning",
                     "fieldwork": "Fieldwork",
                     "managerReview": "Manager Review",
                     "partnerReview": "Partner Review"
                 }
-                daily_hours['phase'] = daily_hours['phase'].map(lambda x: phase_map.get(x, x))
-                
-                # Create line chart with dark mode styling
+                daily_hours['phase'] = daily_hours['phase'].map(phase_map)  # Use consistent mapping
+
                 fig = px.line(
                     daily_hours,
                     x='date',
@@ -1326,9 +1240,8 @@ with tab3:
                     color='phase',
                     title='Daily Hours by Phase',
                     markers=True,
-                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
                 )
-                
                 fig.update_layout(
                     xaxis_title="Date",
                     yaxis_title="Hours Logged",
@@ -1338,19 +1251,16 @@ with tab3:
                     font_color=COLOR_TEXT,
                     title_font_color=COLOR_TEXT
                 )
-                
+
                 fig.update_xaxes(color=COLOR_TEXT)
                 fig.update_yaxes(color=COLOR_TEXT)
-                
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # Create cumulative hours chart with dark mode styling
+
+                # Create cumulative hours chart
                 timeline_df = timeline_df.sort_values('date')
                 timeline_df['cumulative_hours'] = timeline_df.groupby('phase')['hours'].cumsum()
-                
-                # Map phase names
-                timeline_df['phase'] = timeline_df['phase'].map(lambda x: phase_map.get(x, x))
-                
+                timeline_df['phase'] = timeline_df['phase'].map(phase_map) #Use consistent mapping
+
                 fig = px.line(
                     timeline_df,
                     x='date',
@@ -1358,9 +1268,8 @@ with tab3:
                     color='phase',
                     title='Cumulative Hours by Phase',
                     line_shape='hv',
-                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
                 )
-                
                 fig.update_layout(
                     xaxis_title="Date",
                     yaxis_title="Cumulative Hours",
@@ -1370,556 +1279,305 @@ with tab3:
                     font_color=COLOR_TEXT,
                     title_font_color=COLOR_TEXT
                 )
-                
                 fig.update_xaxes(color=COLOR_TEXT)
                 fig.update_yaxes(color=COLOR_TEXT)
-                
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No time entries recorded yet for this project.")
-            
+
+
             # Export options
             st.markdown("""
             <div class="custom-card">
                 <h3 class="card-title">Export Report</h3>
             </div>
             """, unsafe_allow_html=True)
-            
+
             if st.button("Export Project Report", key="export_project_report"):
-                # Create Excel report
                 output = io.BytesIO()
-                
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    # Project Summary
+                    # Project Summary Sheet
                     summary_data = {
                         "Item": [
-                            "Company", "Turnover (Rs. Crore)", "Industry", "Audit Category", 
-                            "Financial Year End", "Listed", "Total Planned Hours", 
+                            "Company", "Turnover (Rs. Crore)", "Industry", "Audit Category",
+                            "Financial Year End", "Listed", "Total Planned Hours",
                             "Total Actual Hours", "Progress"
                         ],
                         "Value": [
-                            project['company_name'], project['turnover'], project['industry_name'], 
+                            project['company_name'], project['turnover'], project['industry_name'],
                             project['audit_category_display'], project['financial_year_end'],
-                            "Yes" if project['is_listed'] else "No", total_planned, 
+                            "Yes" if project['is_listed'] else "No", total_planned,
                             total_actual, f"{round(total_progress)}%"
                         ]
                     }
                     summary_df = pd.DataFrame(summary_data)
                     summary_df.to_excel(writer, sheet_name='Summary', index=False)
-                    
-                    # Phase Progress
+
+                    # Phase Progress Sheet
                     phase_df.to_excel(writer, sheet_name='Phase Progress', index=False)
-                    
-                    # Resource Utilization
+
+                    # Resource Utilization Sheet (if data exists)
                     if resource_data:
                         resource_df.to_excel(writer, sheet_name='Resource Utilization', index=False)
-                    
-                    # Time Entries Detail
+
+                    # Time Entries Detail Sheet (if data exists)
                     if timeline_entries:
                         entries_df = pd.DataFrame(timeline_entries)
-                        entries_df['phase'] = entries_df['phase'].map(lambda x: phase_map.get(x, x))
+                        entries_df['phase'] = entries_df['phase'].map(phase_map)  # Consistent mapping
                         entries_df.to_excel(writer, sheet_name='Time Entries', index=False)
-                
-                # Create download link
+
+                # Create download link (Corrected MIME type and button styling)
                 output.seek(0)
                 b64 = base64.b64encode(output.read()).decode()
                 filename = f"project_report_{project['company_name'].replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}" style="text-decoration:none;"><button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">Download Excel Report</button></a>'
+                href = (
+                    f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
+                    f'download="{filename}" style="text-decoration:none;">'
+                    f'<button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">'
+                    f'Download Excel Report'
+                    f'</button></a>'
+                )
                 st.markdown(href, unsafe_allow_html=True)
+
     else:
         st.info("No projects available. Please create a project in the Budget Calculator tab first.")
 
-# Tab 4: Team Reports
 with tab4:
+    # ... (Your existing code for tab4 - Team Reports) ...
     st.markdown("### Team Reports")
     st.markdown("View reports on team member utilization across all projects.")
-    
-    # Get all team members across projects
+
+    # Get all team members across projects (deduplicated with a set)
     all_team_members = set()
-    for project_name, project in st.session_state.projects.items():
+    for project in st.session_state.projects.values():
         if 'team_members' in project:
-            for role, member in project['team_members'].items():
-                if member:  # Only add non-empty team members
-                    all_team_members.add(member)
-    
+            all_team_members.update(member for member in project['team_members'].values() if member)
+
     if all_team_members:
-        # Team member selection
         selected_member = st.selectbox(
             "Select Team Member",
-            options=sorted(list(all_team_members))
+            options=sorted(list(all_team_members))  # Sort for consistent order
         )
-        
+
         st.markdown("""
         <div class="custom-card">
             <h3 class="card-title">Date Range</h3>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Date range selection for filtering
+
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input("Start Date", datetime.now().replace(day=1).date())
         with col2:
             end_date = st.date_input("End Date", datetime.now().date())
-        
-        # Filter time entries for selected team member and date range
+
+        # Filter time entries by team member and date range
         member_entries = [
-            entry for entry in st.session_state.time_entries 
+            entry for entry in st.session_state.time_entries
             if entry.get('resource') == selected_member
-            and start_date.strftime('%Y-%m-%d') <= entry.get('date', '') <= end_date.strftime('%Y-%m-%d')
+            and start_date <= datetime.strptime(entry.get('date', '1900-01-01'), '%Y-%m-%d').date() <= end_date  # Correct date comparison
         ]
-        
+
         if member_entries:
-            # Calculate total hours
-            total_hours = sum(entry.get('hours', 0) for entry in member_entries)
-            
-            # Group hours by project
-            project_hours = {}
-            for entry in member_entries:
-                project = entry.get('project', 'Unknown')
-                if project not in project_hours:
-                    project_hours[project] = 0
-                project_hours[project] += entry.get('hours', 0)
-            
-            # Group hours by phase
-            phase_hours = {}
-            for entry in member_entries:
-                phase = entry.get('phase', 'Unknown')
-                if phase not in phase_hours:
-                    phase_hours[phase] = 0
-                phase_hours[phase] += entry.get('hours', 0)
-            
-            # Display summary metrics
-            st.markdown(f"""
-            <div class="custom-card">
-                <h3 class="card-title">Summary for {selected_member}</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            metrics_cols = st.columns(3)
-            with metrics_cols[0]:
-                st.metric("Total Hours", f"{total_hours}")
-            
-            with metrics_cols[1]:
-                st.metric("Projects", f"{len(project_hours)}")
-            
-            with metrics_cols[2]:
-                daily_avg = total_hours / max(1, (end_date - start_date).days + 1)
-                st.metric("Daily Average", f"{round(daily_avg, 1)}")
-            
-            # Create charts
-            chart_cols = st.columns(2)
-            
-            with chart_cols[0]:
-                st.markdown("""
-                <div class="custom-card">
-                    <h3 class="card-title">Hours by Project</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Project distribution pie chart with dark mode styling
-                project_data = pd.DataFrame({
-                    'Project': list(project_hours.keys()),
-                    'Hours': list(project_hours.values())
-                })
-                
-                fig = px.pie(
-                    project_data,
-                    values='Hours',
-                    names='Project',
-                    title=f'Hours by Project ({start_date
-                                               .strftime("%d %b")} - {end_date.strftime("%d %b")})',
-                    color_discrete_sequence=px.colors.sequential.Blues_r
-                )
-                
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                fig.update_layout(
-                    height=400,
+          # Calculate total hours
+          total_hours = sum(entry.get('hours', 0) for entry in member_entries)
+
+          # Group hours by project
+          project_hours = {}
+          for entry in member_entries:
+              project = entry.get('project', 'Unknown')
+              project_hours[project] = project_hours.get(project, 0) + entry.get('hours', 0)
+
+          # Group hours by phase
+          phase_hours = {}
+          for entry in member_entries:
+              phase = entry.get('phase', 'Unknown')
+              phase_hours[phase] = phase_hours.get(phase, 0) + entry.get('hours', 0)
+
+          # Summary metrics
+          st.markdown(f"""
+          <div class="custom-card">
+              <h3 class="card-title">Summary for {selected_member}</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          metrics_cols = st.columns(3)
+          with metrics_cols[0]:
+              st.metric("Total Hours", f"{total_hours}")
+          with metrics_cols[1]:
+              st.metric("Projects", f"{len(project_hours)}")
+          with metrics_cols[2]:
+              daily_avg = total_hours / max(1, (end_date - start_date).days + 1)  # Avoid division by zero
+              st.metric("Daily Average", f"{round(daily_avg, 1)}")
+
+          # Charts
+          chart_cols = st.columns(2)
+
+          with chart_cols[0]:
+              st.markdown("""
+              <div class="custom-card">
+                  <h3 class="card-title">Hours by Project</h3>
+              </div>
+              """, unsafe_allow_html=True)
+
+              project_data = pd.DataFrame({
+                  'Project': list(project_hours.keys()),
+                  'Hours': list(project_hours.values())
+              })
+              fig = px.pie(
+                  project_data,
+                  values='Hours',
+                  names='Project',
+                  title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                  color_discrete_sequence=px.colors.sequential.Blues_r  # Use a named color sequence
+              )
+              fig.update_traces(textposition='inside', textinfo='percent+label')
+              fig.update_layout(
+                  height=400,
                     plot_bgcolor=COLOR_CARD_BACKGROUND,
                     paper_bgcolor=COLOR_CARD_BACKGROUND,
                     font_color=COLOR_TEXT,
                     title_font_color=COLOR_TEXT
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with chart_cols[1]:
-                st.markdown("""
-                <div class="custom-card">
-                    <h3 class="card-title">Hours by Phase</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Phase distribution pie chart with dark mode styling
-                phase_map = {
-                    "planning": "Planning",
-                    "fieldwork": "Fieldwork",
-                    "managerReview": "Manager Review",
-                    "partnerReview": "Partner Review"
-                }
-                
-                phase_data = pd.DataFrame({
-                    'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],
-                    'Hours': list(phase_hours.values())
-                })
-                
-                fig = px.pie(
-                    phase_data,
-                    values='Hours',
-                    names='Phase',
-                    title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
-                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
-                )
-                
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                fig.update_layout(
-                    height=400,
+              )
+              st.plotly_chart(fig, use_container_width=True)
+
+          with chart_cols[1]:
+              st.markdown("""
+              <div class="custom-card">
+                  <h3 class="card-title">Hours by Phase</h3>
+              </div>
+              """, unsafe_allow_html=True)
+
+              phase_map = {  # Consistent mapping
+                  "planning": "Planning",
+                  "fieldwork": "Fieldwork",
+                  "managerReview": "Manager Review",
+                  "partnerReview": "Partner Review"
+              }
+              phase_data = pd.DataFrame({
+                  'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],  # Use consistent mapping
+                  'Hours': list(phase_hours.values())
+              })
+              fig = px.pie(
+                  phase_data,
+                  values='Hours',
+                  names='Phase',
+                  title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                  color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
+              )
+              fig.update_traces(textposition='inside', textinfo='percent+label')
+              fig.update_layout(
+                  height=400,
                     plot_bgcolor=COLOR_CARD_BACKGROUND,
                     paper_bgcolor=COLOR_CARD_BACKGROUND,
                     font_color=COLOR_TEXT,
                     title_font_color=COLOR_TEXT
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Time entries table
-            st.markdown("""
-            <div class="custom-card">
-                <h3 class="card-title">Time Entries</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            entries_df = pd.DataFrame(member_entries)
-            if not entries_df.empty:
-                entries_df['date'] = pd.to_datetime(entries_df['date'])
-                entries_df = entries_df.sort_values('date', ascending=False)
-                
-                # Map phase names
-                entries_df['phase'] = entries_df['phase'].map(lambda x: phase_map.get(x, x))
-                
-                # Display entries
-                st.dataframe(
-                    entries_df[['date', 'project', 'phase', 'hours', 'description']],
-                    hide_index=True,
-                    use_container_width=True
-                )
-            
-            # Daily hours chart
-            st.markdown("""
-            <div class="custom-card">
-                <h3 class="card-title">Daily Hours Trend</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Create daily hours DataFrame
-            entries_df['date'] = pd.to_datetime(entries_df['date'])
-            daily_df = entries_df.groupby(entries_df['date'].dt.date).agg({'hours': 'sum'}).reset_index()
-            
-            fig = px.bar(
-                daily_df,
-                x='date',
-                y='hours',
-                title=f'Daily Hours ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
-                color_discrete_sequence=[COLOR_PRIMARY]
-            )
-            
-            fig.update_layout(
-                xaxis_title="Date",
-                yaxis_title="Hours",
-                height=400,
+              )
+              st.plotly_chart(fig, use_container_width=True)
+
+          # Time entries table
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Time Entries</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          entries_df = pd.DataFrame(member_entries)
+          if not entries_df.empty:
+              entries_df['date'] = pd.to_datetime(entries_df['date'])
+              entries_df = entries_df.sort_values('date', ascending=False)
+              entries_df['phase'] = entries_df['phase'].map(phase_map)  # Use consistent mapping
+              st.dataframe(
+                  entries_df[['date', 'project', 'phase', 'hours', 'description']],
+                  hide_index=True,
+                  use_container_width=True
+              )
+
+          # Daily hours chart
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Daily Hours Trend</h3>
+          </div>
+          """, unsafe_allow_html=True)
+          entries_df['date'] = pd.to_datetime(entries_df['date'])
+          daily_df = entries_df.groupby(entries_df['date'].dt.date).agg({'hours': 'sum'}).reset_index()
+          fig = px.bar(
+              daily_df,
+              x='date',
+              y='hours',
+              title=f'Daily Hours ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+              color_discrete_sequence=[COLOR_PRIMARY]  # Use named color
+          )
+          fig.update_layout(
+              xaxis_title="Date",
+              yaxis_title="Hours",
+              height=400,
                 plot_bgcolor=COLOR_CARD_BACKGROUND,
                 paper_bgcolor=COLOR_CARD_BACKGROUND,
                 font_color=COLOR_TEXT,
                 title_font_color=COLOR_TEXT
-            )
-            
-            fig.update_xaxes(color=COLOR_TEXT)
-            fig.update_yaxes(color=COLOR_TEXT)
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Export team member report
-            st.markdown("""
-            <div class="custom-card">
-                <h3 class="card-title">Export Report</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("Export Team Member Report", key="export_team_report"):
-                # Create Excel report
-                output = io.BytesIO()
-                
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    # Summary
-                    summary_data = {
-                        "Item": ["Team Member", "Date Range", "Total Hours", "Projects", "Daily Average"],
-                        "Value": [
-                            selected_member,
-                            f"{start_date.strftime('%d %b %Y')} - {end_date.strftime('%d %b %Y')}",
-                            total_hours,
-                            len(project_hours),
-                            f"{round(daily_avg, 1)}"
-                        ]
-                    }
-                    summary_df = pd.DataFrame(summary_data)
-                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
-                    
-                    # Project Hours
-                    project_data.to_excel(writer, sheet_name='Project Hours', index=False)
-                    
-                    # Phase Hours
-                    phase_data.to_excel(writer, sheet_name='Phase Hours', index=False)
-                    
-                    # Daily Hours
-                    daily_df.to_excel(writer, sheet_name='Daily Hours', index=False)
-                    
-                    # Time Entries
-                    entries_df[['date', 'project', 'phase', 'hours', 'description']].to_excel(
-                        writer, sheet_name='Time Entries', index=False
-                    )
-                
-                # Create download link
-                output.seek(0)
-                b64 = base64.b64encode(output.read()).decode()
-                filename = f"team_report_{selected_member.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}" style="text-decoration:none;"><button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">Download Excel Report</button></a>'
-                st.markdown(href, unsafe_allow_html=True)
+          )
+
+          fig.update_xaxes(color=COLOR_TEXT)
+          fig.update_yaxes(color=COLOR_TEXT)
+          st.plotly_chart(fig, use_container_width=True)
+
+
+          # Export team member report
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Export Report</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          if st.button("Export Team Member Report", key="export_team_report"):
+              output = io.BytesIO()
+              with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                  # Summary Sheet
+                  summary_data = {
+                      "Item": ["Team Member", "Date Range", "Total Hours", "Projects", "Daily Average"],
+                      "Value": [
+                          selected_member,
+                          f"{start_date.strftime('%d %b %Y')} - {end_date.strftime('%d %b %Y')}",
+                          total_hours,
+                          len(project_hours),
+                          f"{round(daily_avg, 1)}"
+                      ]
+                  }
+                  summary_df = pd.DataFrame(summary_data)
+                  summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+                  # Project Hours Sheet
+                  project_data.to_excel(writer, sheet_name='Project Hours', index=False)
+
+                  # Phase Hours Sheet
+                  phase_data.to_excel(writer, sheet_name='Phase Hours', index=False)
+
+                  # Daily Hours Sheet
+                  daily_df.to_excel(writer, sheet_name='Daily Hours', index=False)
+
+                  # Time Entries Sheet
+                  entries_df[['date', 'project', 'phase', 'hours', 'description']].to_excel(
+                      writer, sheet_name='Time Entries', index=False
+                  )
+
+              # Create download link (Corrected MIME type and button styling)
+              output.seek(0)
+              b64 = base64.b64encode(output.read()).decode()
+              filename = f"team_report_{selected_member.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+              href = (
+                  f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
+                  f'download="{filename}" style="text-decoration:none;">'
+                  f'<button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">'
+                  f'Download Excel Report'
+                  f'</button></a>'
+              )
+              st.markdown(href, unsafe_allow_html=True)
         else:
             st.info(f"No time entries found for {selected_member} in the selected date range.")
     else:
         st.info("No team members assigned to any projects yet.")
 
-# Add a new Dashboard tab and make it the first tab
-# Add this before creating the other tabs
-def create_dashboard():
-    # Define phase_map first
-    phase_map = {
-        "planning": "Planning",
-        "fieldwork": "Fieldwork",
-        "managerReview": "Manager Review",
-        "partnerReview": "Partner Review"
-    }
-    
-    st.markdown("### Dashboard")
-    st.markdown("Overview of all audit projects and team activities.")
-    # Move this line to after the dashboard function is defined
-    tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
-    
-    # Check if projects exist
-    if not st.session_state.projects:
-        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
-        return
-    
-    # Summary metrics
-    projects_count = len(st.session_state.projects)
-    total_planned_hours = sum(project.get('total_hours', 0) for project in st.session_state.projects.values())
-    total_actual_hours = sum(project.get('actual_hours', {}).get('total', 0) for project in st.session_state.projects.values())
-    
-    # Team members
-    all_team_members = set()
-    for project in st.session_state.projects.values():
-        if 'team_members' in project:
-            for role, member in project['team_members'].items():
-                if member:
-                    all_team_members.add(member)
-    
-    # Create metrics layout
-    st.markdown("""
-    <div class="custom-card">
-        <h3 class="card-title">Summary Metrics</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Projects", f"{projects_count}")
-    
-    with col2:
-        st.metric("Total Team Members", f"{len(all_team_members)}")
-    
-    with col3:
-        st.metric("Total Planned Hours", f"{total_planned_hours}")
-    
-    with col4:
-        completion_pct = round((total_actual_hours / total_planned_hours * 100) if total_planned_hours else 0)
-        st.metric("Overall Completion", f"{completion_pct}%", f"{total_actual_hours} hours")
-    
-    # Project status overview
-    st.markdown("""
-    <div class="custom-card">
-        <h3 class="card-title">Project Status Overview</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Create project status dataframe
-    project_status = []
-    for name, project in st.session_state.projects.items():
-        planned = project.get('total_hours', 0)
-        actual = project.get('actual_hours', {}).get('total', 0)
-        completion = round((actual / planned * 100) if planned else 0)
-        
-        project_status.append({
-            "Project": name,
-            "Category": project.get('audit_category_display', ''),
-            "Industry": project.get('industry_name', ''),
-            "Planned Hours": planned,
-            "Actual Hours": actual,
-            "Completion": f"{completion}%",
-            "Completion_Value": completion,  # For sorting
-            "Status": "Completed" if completion >= 95 else "In Progress" if completion > 0 else "Not Started"
-        })
-    
-    # Sort by completion (descending)
-    project_status = sorted(project_status, key=lambda x: x["Completion_Value"], reverse=True)
-    
-    # Display as dataframe
-    status_df = pd.DataFrame(project_status)
-    if 'Completion_Value' in status_df.columns:
-        status_df = status_df.drop('Completion_Value', axis=1)
-    
-    st.dataframe(status_df, hide_index=True, use_container_width=True)
-    
-    # Recent activity
-    st.markdown("""
-    <div class="custom-card">
-        <h3 class="card-title">Recent Activity</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Get recent time entries
-    recent_entries = sorted(
-        st.session_state.time_entries,
-        key=lambda x: x.get('entry_time', ''),
-        reverse=True
-    )[:10]  # Get 10 most recent entries
-    
-    if recent_entries:
-        # Convert to dataframe
-        recent_df = pd.DataFrame(recent_entries)
-        
-        # Format display
-        phase_map = {
-            "planning": "Planning",
-            "fieldwork": "Fieldwork",
-            "managerReview": "Manager Review",
-            "partnerReview": "Partner Review"
-        }
-        
-        recent_df['phase'] = recent_df['phase'].map(lambda x: phase_map.get(x, x))
-        recent_df['entry_time'] = pd.to_datetime(recent_df['entry_time'])
-        
-        # Display recent entries
-        st.dataframe(
-            recent_df[['entry_time', 'project', 'resource', 'phase', 'hours']],
-            hide_index=True,
-            use_container_width=True
-        )
-    else:
-        st.info("No time entries recorded yet.")
-    
-    # Team utilization chart
-    st.markdown("""
-    <div class="custom-card">
-        <h3 class="card-title">Team Utilization</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Aggregate hours by team member
-    team_hours = {}
-    for entry in st.session_state.time_entries:
-        resource = entry.get('resource', 'Unknown')
-        hours = entry.get('hours', 0)
-        
-        if resource not in team_hours:
-            team_hours[resource] = 0
-        team_hours[resource] += hours
-    
-    if team_hours:
-        # Create dataframe for chart
-        team_df = pd.DataFrame({
-            'Team Member': list(team_hours.keys()),
-            'Hours': list(team_hours.values())
-        }).sort_values('Hours', ascending=False)
-        
-        # Horizontal bar chart with dark mode styling
-        fig = px.bar(
-            team_df,
-            y='Team Member',
-            x='Hours',
-            title='Total Hours by Team Member',
-            orientation='h',
-            color='Hours',
-            color_continuous_scale='Blues'
-        )
-        
-        fig.update_layout(
-            xaxis_title="Hours",
-            yaxis_title="",
-            height=400,
-            plot_bgcolor=COLOR_CARD_BACKGROUND,
-            paper_bgcolor=COLOR_CARD_BACKGROUND,
-            font_color=COLOR_TEXT,
-            title_font_color=COLOR_TEXT
-        )
-        
-        fig.update_xaxes(color=COLOR_TEXT)
-        fig.update_yaxes(color=COLOR_TEXT)
-        
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No time entries recorded yet.")
-    
-    # Hours by audit phase
-    st.markdown("""
-    <div class="custom-card">
-        <h3 class="card-title">Hours by Audit Phase</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Aggregate hours by phase
-    phase_hours = {"planning": 0, "fieldwork": 0, "managerReview": 0, "partnerReview": 0}
-    for entry in st.session_state.time_entries:
-        phase = entry.get('phase', 'Unknown')
-        hours = entry.get('hours', 0)
-        
-        if phase in phase_hours:
-            phase_hours[phase] += hours
-    
-    # Create dataframe for chart
-    phase_df = pd.DataFrame({
-        'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],
-        'Hours': list(phase_hours.values())
-    })
-    
-    # Create doughnut chart with dark mode styling
-    fig = px.pie(
-        phase_df,
-        values='Hours',
-        names='Phase',
-        title='Distribution of Hours by Audit Phase',
-        hole=0.4,
-        color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
-    )
-    
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(
-        height=400,
-        plot_bgcolor=COLOR_CARD_BACKGROUND,
-        paper_bgcolor=COLOR_CARD_BACKGROUND,
-        font_color=COLOR_TEXT,
-        title_font_color=COLOR_TEXT
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-# Add dashboard as the first tab
-#Correct tab definition.
-tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
-
-with tab_dashboard:
-    create_dashboard()
-
-# Footer
+# --- FOOTER ---
 st.markdown("---")
 st.caption("Statutory Audit Budget Calculator & Time Tracker - A tool for audit planning and resource tracking")
