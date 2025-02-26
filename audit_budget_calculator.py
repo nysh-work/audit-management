@@ -405,7 +405,7 @@ def styled_card(title, content):
         {content}
     </div>
     """, unsafe_allow_html=True)
-    
+
 # --- INITIALIZE DATABASE ---
 init_db()  # Initialize the database *BEFORE* session state
 
@@ -637,6 +637,214 @@ def get_project_list():
     if not st.session_state.projects:
         return ["No projects available"]
     return list(st.session_state.projects.keys())
+
+# Calculate budget based on inputs
+def calculate_budget(company_name, turnover, is_listed, industry_sector, controls_risk, inherent_risk, complexity, info_delay_risk):
+    # Determine audit category based on turnover
+    if turnover <= 50:
+        audit_category = "micro"
+        audit_category_display = "Micro (≤ Rs. 50 Cr)"
+    elif turnover <= 250:
+        audit_category = "small"
+        audit_category_display = "Small (Rs. 50-250 Cr)"
+    elif turnover <= 500:
+        audit_category = "medium"
+        audit_category_display = "Medium (Rs. 250-500 Cr)"
+    elif turnover <= 1000:
+        audit_category = "large"
+        audit_category_display = "Large (Rs. 500-1000 Cr)"
+    else:
+        audit_category = "veryLarge"
+        audit_category_display = "Very Large (> Rs. 1000 Cr)"
+    
+    # Get the lookup key based on size and sector
+    size_prefix = "S" if audit_category in ["micro", "small"] else "M" if audit_category == "medium" else "L" if audit_category == "large" else "VL"
+    lookup_key = size_prefix + industry_sector
+    
+    # Get baseline hours from detailed estimates or fall back to default
+    baseline_estimate = detailed_time_estimates.get(lookup_key, default_time_estimate)
+    
+    # Extract phase hours
+    base_planning = baseline_estimate["planning"]
+    base_fieldwork = baseline_estimate["fieldwork"]
+    base_manager_review = baseline_estimate["managerReview"]
+    base_partner_review = baseline_estimate["partnerReview"]
+    base_total = baseline_estimate["total"]
+    
+    # Apply 0.8 scaling factor for Micro category
+    if audit_category == "micro":
+        base_planning = round(base_planning * 0.8)
+        base_fieldwork = round(base_fieldwork * 0.8)
+        base_manager_review = round(base_manager_review * 0.8)
+        base_partner_review = round(base_partner_review * 0.8)
+        base_total = round(base_total * 0.8)
+    
+    # Risk adjustment multipliers
+    controls_risk_factor = 1 if controls_risk == 1 else (1.2 if controls_risk == 2 else 1.4)
+    inherent_risk_factor = 1 if inherent_risk == 1 else (1.25 if inherent_risk == 2 else 1.5)
+    complexity_factor = 1 if complexity == 1 else (1.3 if complexity == 2 else 1.6)
+    info_delay_factor = 1 if info_delay_risk == 1 else (1.15 if info_delay_risk == 2 else 1.3)
+    
+    # Calculate adjusted phase hours
+    adjusted_planning = round(base_planning * controls_risk_factor * inherent_risk_factor)
+    adjusted_fieldwork = round(base_fieldwork * controls_risk_factor * inherent_risk_factor * complexity_factor * info_delay_factor)
+    adjusted_manager_review = round(base_manager_review * complexity_factor)
+    adjusted_partner_review = round(base_partner_review * complexity_factor)
+    
+    # Set phase hours
+    phase_hours = {
+        "planning": adjusted_planning,
+        "fieldwork": adjusted_fieldwork,
+        "managerReview": adjusted_manager_review,
+        "partnerReview": adjusted_partner_review
+    }
+    
+    # Calculate total adjusted hours
+    total_hours = adjusted_planning + adjusted_fieldwork + adjusted_manager_review + adjusted_partner_review
+    total_days = round(total_hours / 8 * 10) / 10  # Round to 1 decimal place
+    
+    # Staff allocation
+    staff_hours = {
+        "partner": phase_hours["partnerReview"],
+        "manager": phase_hours["managerReview"],
+        "qualifiedAssistant": 0,
+        "seniorArticle": 0,
+        "juniorArticle": 0,
+        "eqcr": 0,
+    }
+    
+    # Add planning hours based on audit size
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # Partner gets 30% of planning hours for larger audits
+        staff_hours["partner"] += round(phase_hours["planning"] * 0.3)
+        # Manager gets 30% of planning hours for larger audits
+        staff_hours["manager"] += round(phase_hours["planning"] * 0.3)
+    else:
+        # For small and micro, only manager is involved in planning (no partner)
+        staff_hours["manager"] += round(phase_hours["planning"] * 0.4)
+    
+    # Qualified Assistant hours
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # For larger audits, QA gets 40% of planning
+        staff_hours["qualifiedAssistant"] = round(
+            phase_hours["planning"] * 0.4 + 
+            phase_hours["fieldwork"] * 0.3
+        )
+    else:
+        # For smaller audits, QA gets 60% of planning
+        staff_hours["qualifiedAssistant"] = round(
+            phase_hours["planning"] * 0.6 + 
+            phase_hours["fieldwork"] * 0.3
+        )
+    
+    # Senior Article hours - not allocated for Micro audits
+    if audit_category != "micro":
+        staff_hours["seniorArticle"] = round(
+            phase_hours["planning"] * 0.3 + 
+            phase_hours["fieldwork"] * 0.4
+        )
+    
+    # Junior Article hours
+    junior_article_count = 2 if audit_category == "veryLarge" else 1
+    
+    if junior_article_count == 1:
+        # Single junior article
+        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
+    else:
+        # Two junior articles for very large audits
+        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
+    
+    # Add EQCR hours if required
+    eqcr_required = is_listed or turnover > 1000
+    if eqcr_required:
+        staff_hours["eqcr"] = round(staff_hours["partner"] * 0.4)
+    
+    # Create detailed staff allocation by phase
+    staff_allocation_by_phase = {
+        "planning": {},
+        "fieldwork": {},
+        "managerReview": {},
+        "partnerReview": {}
+    }
+    
+    # Planning phase allocation
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # For larger audits
+        staff_allocation_by_phase["planning"]["partner"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.4)
+        if audit_category != "micro":
+            staff_allocation_by_phase["planning"]["seniorArticle"] = round(phase_hours["planning"] * 0.3)
+    else:
+        # For smaller audits
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.4)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.6)
+    
+    # Fieldwork phase allocation
+    staff_allocation_by_phase["fieldwork"]["qualifiedAssistant"] = round(phase_hours["fieldwork"] * 0.3)
+    if audit_category != "micro":
+        staff_allocation_by_phase["fieldwork"]["seniorArticle"] = round(phase_hours["fieldwork"] * 0.4)
+    
+    if junior_article_count == 1:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
+    else:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
+    
+    # Manager Review phase - all to manager
+    staff_allocation_by_phase["managerReview"]["manager"] = phase_hours["managerReview"]
+    
+    # Partner Review phase - all to partner
+    staff_allocation_by_phase["partnerReview"]["partner"] = phase_hours["partnerReview"]
+    
+    # EQCR if required
+    if eqcr_required:
+        staff_allocation_by_phase["partnerReview"]["eqcr"] = round(staff_hours["partner"] * 0.4)
+    
+    # Generate risk adjustment notes
+    risk_notes = [
+        f"Size-Sector Baseline: {lookup_key}{' (scaled to 80% for Micro)' if audit_category == 'micro' else ''}",
+        f"Base Hours: Planning: {base_planning}h, Fieldwork: {base_fieldwork}h, Manager Review: {base_manager_review}h, Partner Review: {base_partner_review}h",
+        f"Controls Risk: {'Low' if controls_risk == 1 else ('Medium' if controls_risk == 2 else 'High')} (factor: {controls_risk_factor:.2f})",
+        f"Inherent Risk: {'Low' if inherent_risk == 1 else ('Medium' if inherent_risk == 2 else 'High')} (factor: {inherent_risk_factor:.2f})",
+        f"Complexity: {'Low' if complexity == 1 else ('Medium' if complexity == 2 else 'High')} (factor: {complexity_factor:.2f})",
+        f"Information Delay Risk: {'Low' if info_delay_risk == 1 else ('Medium' if info_delay_risk == 2 else 'High')} (factor: {info_delay_factor:.2f})",
+    ]
+    
+    # Create result dictionary
+    result = {
+        "company_name": company_name,
+        "turnover": turnover,
+        "industry_sector": industry_sector,
+        "industry_name": industry_sectors[industry_sector]["name"],
+        "is_listed": is_listed,
+        "audit_category": audit_category,
+        "audit_category_display": audit_category_display,
+        "phase_hours": phase_hours,
+        "total_hours": total_hours,
+        "total_days": total_days,
+        "staff_hours": staff_hours,
+        "staff_allocation_by_phase": staff_allocation_by_phase,
+        "eqcr_required": eqcr_required,
+        "risk_notes": risk_notes,
+        "risk_factors": {
+            "controls_risk": controls_risk,
+            "inherent_risk": inherent_risk,
+            "complexity": complexity,
+            "info_delay_risk": info_delay_risk
+        },
+        "creation_date": datetime.now().strftime("%Y-%m-%d"),
+        "financial_year_end": None,  # To be set later
+        "team_members": {},  # To be set later
+        "actual_hours": {
+            "planning": 0,
+            "fieldwork": 0,
+            "managerReview": 0,
+            "partnerReview": 0,
+            "total": 0
+        }
+    }
+    
+    return result
 
 # --- TAB CONTENT (Using 'with' blocks for each tab) ---
 
