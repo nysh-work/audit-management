@@ -3,23 +3,67 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, date
 import io
 import base64
+import json
+import os
 
 # Set page config
 st.set_page_config(
-    page_title="Statutory Audit Budget Calculator",
+    page_title="Statutory Audit Budget Calculator & Time Tracker",
     page_icon="📊",
     layout="wide"
 )
 
-# Title and description
-st.title("Statutory Audit Budget Calculator")
-st.markdown("Calculate audit budgets based on company size, industry, and risk factors.")
+# Initialize session state for storing data
+if 'projects' not in st.session_state:
+    st.session_state.projects = {}
 
-# Create layout with columns for input and results
-col1, col2 = st.columns([1, 2])
+if 'time_entries' not in st.session_state:
+    st.session_state.time_entries = []
+
+if 'current_project' not in st.session_state:
+    st.session_state.current_project = None
+
+# Function to save data to files
+def save_data():
+    # Save projects
+    with open('projects.json', 'w') as f:
+        json.dump(st.session_state.projects, f)
+    
+    # Save time entries
+    df = pd.DataFrame(st.session_state.time_entries)
+    if not df.empty:
+        df.to_csv('time_entries.csv', index=False)
+
+# Function to load data from files
+def load_data():
+    try:
+        # Load projects
+        if os.path.exists('projects.json'):
+            with open('projects.json', 'r') as f:
+                st.session_state.projects = json.load(f)
+        
+        # Load time entries
+        if os.path.exists('time_entries.csv'):
+            df = pd.read_csv('time_entries.csv')
+            st.session_state.time_entries = df.to_dict('records')
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+
+# Try to load data at startup
+try:
+    load_data()
+except:
+    # First run or file doesn't exist yet
+    pass
+
+# Title and navigation
+st.title("Statutory Audit Budget Calculator & Time Tracker")
+
+# Create tabs for different sections
+tab1, tab2, tab3, tab4 = st.tabs(["Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
 
 # Define industry sector definitions and factors
 industry_sectors = {
@@ -63,20 +107,20 @@ detailed_time_estimates = {
 # Default time for combinations not specified (using small manufacturing as default)
 default_time_estimate = {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480}
 
-# Input form in the left column
-with col1:
-    st.header("Audit Details")
-    
-    company_name = st.text_input("Company Name")
-    turnover = st.number_input("Turnover (in Rs. Crore)", min_value=0.0, step=10.0)
-    is_listed = st.checkbox("Listed Company")
-    
-    industry_sector = st.selectbox(
-        "Industry Sector",
-        options=list(industry_sectors.keys()),
-        format_func=lambda x: industry_sectors[x]["name"]
-    )
-    
+# Staff roles
+staff_roles = ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article", "EQCR"]
+
+# Audit phases
+audit_phases = ["Planning", "Fieldwork", "Manager Review", "Partner Review"]
+
+# Get list of available projects for selection
+def get_project_list():
+    if not st.session_state.projects:
+        return ["No projects available"]
+    return list(st.session_state.projects.keys())
+
+# Calculate budget based on inputs
+def calculate_budget(company_name, turnover, is_listed, industry_sector, controls_risk, inherent_risk, complexity, info_delay_risk):
     # Determine audit category based on turnover
     if turnover <= 50:
         audit_category = "micro"
@@ -94,36 +138,6 @@ with col1:
         audit_category = "veryLarge"
         audit_category_display = "Very Large (> Rs. 1000 Cr)"
     
-    st.info(f"Audit Category: {audit_category_display}")
-    
-    # Risk factors with expanders
-    with st.expander("Risk Factors", expanded=True):
-        controls_risk = st.selectbox(
-            "Controls Risk",
-            options=[1, 2, 3],
-            format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
-        )
-        
-        inherent_risk = st.selectbox(
-            "Inherent Risk",
-            options=[1, 2, 3],
-            format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
-        )
-        
-        complexity = st.selectbox(
-            "Complexity",
-            options=[1, 2, 3],
-            format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
-        )
-        
-        info_delay_risk = st.selectbox(
-            "Information Delay Risk",
-            options=[1, 2, 3],
-            format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
-        )
-
-# Calculate budget based on inputs
-if company_name or turnover > 0:
     # Get the lookup key based on size and sector
     size_prefix = "S" if audit_category in ["micro", "small"] else "M" if audit_category == "medium" else "L" if audit_category == "large" else "VL"
     lookup_key = size_prefix + industry_sector
@@ -226,6 +240,47 @@ if company_name or turnover > 0:
     if eqcr_required:
         staff_hours["eqcr"] = round(staff_hours["partner"] * 0.4)
     
+    # Create detailed staff allocation by phase
+    staff_allocation_by_phase = {
+        "planning": {},
+        "fieldwork": {},
+        "managerReview": {},
+        "partnerReview": {}
+    }
+    
+    # Planning phase allocation
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # For larger audits
+        staff_allocation_by_phase["planning"]["partner"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.4)
+        if audit_category != "micro":
+            staff_allocation_by_phase["planning"]["seniorArticle"] = round(phase_hours["planning"] * 0.3)
+    else:
+        # For smaller audits
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.4)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.6)
+    
+    # Fieldwork phase allocation
+    staff_allocation_by_phase["fieldwork"]["qualifiedAssistant"] = round(phase_hours["fieldwork"] * 0.3)
+    if audit_category != "micro":
+        staff_allocation_by_phase["fieldwork"]["seniorArticle"] = round(phase_hours["fieldwork"] * 0.4)
+    
+    if junior_article_count == 1:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
+    else:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
+    
+    # Manager Review phase - all to manager
+    staff_allocation_by_phase["managerReview"]["manager"] = phase_hours["managerReview"]
+    
+    # Partner Review phase - all to partner
+    staff_allocation_by_phase["partnerReview"]["partner"] = phase_hours["partnerReview"]
+    
+    # EQCR if required
+    if eqcr_required:
+        staff_allocation_by_phase["partnerReview"]["eqcr"] = round(staff_hours["partner"] * 0.4)
+    
     # Generate risk adjustment notes
     risk_notes = [
         f"Size-Sector Baseline: {lookup_key}{' (scaled to 80% for Micro)' if audit_category == 'micro' else ''}",
@@ -234,259 +289,864 @@ if company_name or turnover > 0:
         f"Inherent Risk: {'Low' if inherent_risk == 1 else ('Medium' if inherent_risk == 2 else 'High')} (factor: {inherent_risk_factor:.2f})",
         f"Complexity: {'Low' if complexity == 1 else ('Medium' if complexity == 2 else 'High')} (factor: {complexity_factor:.2f})",
         f"Information Delay Risk: {'Low' if info_delay_risk == 1 else ('Medium' if info_delay_risk == 2 else 'High')} (factor: {info_delay_factor:.2f})",
-        f"Adjusted hours by phase:",
-        f"- Planning: {base_planning}h → {phase_hours['planning']}h",
-        f"- Fieldwork: {base_fieldwork}h → {phase_hours['fieldwork']}h",
-        f"- Manager Review: {base_manager_review}h → {phase_hours['managerReview']}h",
-        f"- Partner Review: {base_partner_review}h → {phase_hours['partnerReview']}h",
-        f"- Total: {base_total}h → {total_hours}h",
-        f"Staff allocation notes:",
-        f"- {'Partner and Manager both involved in planning (30% each)' if audit_category in ['medium', 'large', 'veryLarge'] else 'Only Manager involved in planning (no Partner planning hours)'}",
-        f"- {'No Senior Article allocated for Micro audits' if audit_category == 'micro' else 'Senior Article involved in planning and fieldwork'}",
-        f"- {'Two Junior Articles allocated for Very Large audit with increased fieldwork allocation' if audit_category == 'veryLarge' else 'One Junior Article allocated'}",
     ]
     
-    if eqcr_required:
-        risk_notes.append("- EQCR required due to listing status or high turnover.")
+    # Create result dictionary
+    result = {
+        "company_name": company_name,
+        "turnover": turnover,
+        "industry_sector": industry_sector,
+        "industry_name": industry_sectors[industry_sector]["name"],
+        "is_listed": is_listed,
+        "audit_category": audit_category,
+        "audit_category_display": audit_category_display,
+        "phase_hours": phase_hours,
+        "total_hours": total_hours,
+        "total_days": total_days,
+        "staff_hours": staff_hours,
+        "staff_allocation_by_phase": staff_allocation_by_phase,
+        "eqcr_required": eqcr_required,
+        "risk_notes": risk_notes,
+        "risk_factors": {
+            "controls_risk": controls_risk,
+            "inherent_risk": inherent_risk,
+            "complexity": complexity,
+            "info_delay_risk": info_delay_risk
+        },
+        "creation_date": datetime.now().strftime("%Y-%m-%d"),
+        "financial_year_end": None,  # To be set later
+        "team_members": {},  # To be set later
+        "actual_hours": {
+            "planning": 0,
+            "fieldwork": 0,
+            "managerReview": 0,
+            "partnerReview": 0,
+            "total": 0
+        }
+    }
+    
+    return result
+
+# Tab 1: Budget Calculator
+with tab1:
+    st.markdown("### Audit Budget Calculator")
+    st.markdown("Calculate audit budgets based on company size, industry, and risk factors.")
+    
+    # Create layout with columns for input and results
+    col1, col2 = st.columns([1, 2])
+    
+    # Input form in the left column
+    with col1:
+        st.header("Audit Details")
+        
+        company_name = st.text_input("Company Name")
+        turnover = st.number_input("Turnover (in Rs. Crore)", min_value=0.0, step=10.0)
+        is_listed = st.checkbox("Listed Company")
+        
+        industry_sector = st.selectbox(
+            "Industry Sector",
+            options=list(industry_sectors.keys()),
+            format_func=lambda x: industry_sectors[x]["name"]
+        )
+        
+        # Financial year end
+        fy_end = st.date_input("Financial Year End", datetime.now().date())
+        
+        # Risk factors with expanders
+        with st.expander("Risk Factors", expanded=True):
+            controls_risk = st.selectbox(
+                "Controls Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            inherent_risk = st.selectbox(
+                "Inherent Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            complexity = st.selectbox(
+                "Complexity",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            info_delay_risk = st.selectbox(
+                "Information Delay Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+        
+        # Team assignment
+        with st.expander("Team Assignment", expanded=True):
+            st.markdown("Assign specific team members to the audit")
+            
+            partner_name = st.text_input("Partner Name")
+            manager_name = st.text_input("Manager Name")
+            qa_name = st.text_input("Qualified Assistant Name")
+            senior_name = st.text_input("Senior Article Name")
+            junior_name = st.text_input("Junior Article Name")
+            eqcr_name = st.text_input("EQCR Partner Name (if applicable)")
+        
+        # Calculate and Save button
+        if st.button("Calculate and Save Project"):
+            if company_name and turnover > 0:
+                # Calculate budget
+                budget_result = calculate_budget(
+                    company_name, turnover, is_listed, industry_sector,
+                    controls_risk, inherent_risk, complexity, info_delay_risk
+                )
+                
+                # Add financial year end
+                budget_result["financial_year_end"] = fy_end.strftime("%Y-%m-%d")
+                
+                # Add team members
+                budget_result["team_members"] = {
+                    "partner": partner_name,
+                    "manager": manager_name,
+                    "qualifiedAssistant": qa_name,
+                    "seniorArticle": senior_name,
+                    "juniorArticle": junior_name,
+                    "eqcr": eqcr_name if budget_result["eqcr_required"] else ""
+                }
+                
+                # Save to session state
+                st.session_state.projects[company_name] = budget_result
+                st.session_state.current_project = company_name
+                
+                # Save to file
+                save_data()
+                
+                st.success(f"Project '{company_name}' saved successfully!")
+            else:
+                st.error("Please enter company name and turnover.")
     
     # Results display in the right column
     with col2:
-        st.header("Budget Summary")
-        
-        # Top summary cards
-        summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
-        
-        with summary_col1:
-            st.metric("Total Hours", f"{total_hours}")
-        
-        with summary_col2:
-            st.metric("Total Days", f"{round(total_days)}")
-        
-        with summary_col3:
-            st.metric("Planning", f"{phase_hours['planning']}h")
-        
-        with summary_col4:
-            st.metric("Fieldwork", f"{phase_hours['fieldwork']}h")
-        
-        with summary_col5:
-            st.metric("EQCR Required", "Yes" if eqcr_required else "No")
-        
-        # Review hours
-        review_col1, review_col2 = st.columns(2)
-        
-        with review_col1:
-            st.metric("Manager Review", f"{phase_hours['managerReview']}h")
-        
-        with review_col2:
-            st.metric("Partner Review", f"{phase_hours['partnerReview']}h")
-        
-        # Staff allocation
-        st.subheader("Staff Allocation")
-        
-        # Create a DataFrame for staff allocation table
-        staff_data = []
-        for role, hours in staff_hours.items():
-            if role == "eqcr" and hours == 0:
-                continue
-                
-            days = round(hours / 8)
-            percentage = round(hours / total_hours * 100) if total_hours else 0
+        if not company_name and not st.session_state.current_project:
+            st.info("Please enter company details and risk factors to generate the audit budget.")
+            st.markdown("""
+            ### How to use this calculator:
+            1. Enter the company name and turnover
+            2. Specify if the company is listed
+            3. Select the industry sector
+            4. Adjust risk factors as needed
+            5. Enter the team members assigned to the audit
+            6. Calculate and save the project
+            7. Use the Time Tracking tab to log hours
+            """)
+        else:
+            # Determine which project to display
+            display_project = st.session_state.current_project if not company_name else company_name
             
-            # Define notes for each role
-            if role == "partner":
-                notes = "Partner Review & Discussions + Planning Involvement" if audit_category in ["medium", "large", "veryLarge"] else "Partner Review & Discussions"
-            elif role == "manager":
-                notes = "Manager Review & Discussions + Planning Involvement"
-            elif role == "qualifiedAssistant":
-                notes = "Planning & Complex Fieldwork"
-            elif role == "seniorArticle":
-                notes = "Not allocated for Micro audits" if audit_category == "micro" else "Planning assistance & Standard Fieldwork"
-            elif role == "juniorArticle":
-                notes = "Two Junior Articles for routine fieldwork" if audit_category == "veryLarge" else "Routine Fieldwork"
-            elif role == "eqcr":
-                notes = "Required for listed companies or turnover > Rs. 1000 Cr"
-            else:
-                notes = ""
+            if display_project in st.session_state.projects:
+                project = st.session_state.projects[display_project]
                 
-            # Format role name for display
-            display_role = {
-                "partner": "Partner",
-                "manager": "Manager",
-                "qualifiedAssistant": "Qualified Assistant",
-                "seniorArticle": "Senior Article",
-                "juniorArticle": "Junior Article(s)",
-                "eqcr": "EQCR"
-            }.get(role, role)
-            
-            staff_data.append({
-                "Role": display_role,
-                "Hours": hours,
-                "Days": days,
-                "Percentage": f"{percentage}%",
-                "Notes": notes
-            })
-        
-        # Add total row
-        staff_data.append({
-            "Role": "Total",
-            "Hours": total_hours,
-            "Days": round(total_days),
-            "Percentage": "100%",
-            "Notes": ""
-        })
-        
-        # Display staff allocation table
-        staff_df = pd.DataFrame(staff_data)
-        st.dataframe(staff_df, hide_index=True, use_container_width=True)
-        
-        # Bar chart visualization
-        st.subheader("Staff Hours Visualization")
-        
-        # Prepare chart data
-        chart_data = []
-        for role, hours in staff_hours.items():
-            if hours > 0:  # Only include roles with allocated hours
-                display_role = {
+                st.header(f"Budget Summary: {project['company_name']}")
+                
+                # Top summary cards
+                summary_col1, summary_col2, summary_col3 = st.columns(3)
+                
+                with summary_col1:
+                    st.metric("Total Planned Hours", f"{project['total_hours']}")
+                
+                with summary_col2:
+                    st.metric("Total Planned Days", f"{round(project['total_days'])}")
+                
+                with summary_col3:
+                    actual_hours = project.get('actual_hours', {}).get('total', 0)
+                    st.metric("Actual Hours Logged", f"{actual_hours}", delta=f"{actual_hours - project['total_hours']}")
+                
+                # Phase hours
+                st.subheader("Audit Phase Hours")
+                
+                phase_cols = st.columns(4)
+                
+                phase_names = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+                
+                for i, (phase_key, phase_name) in enumerate(phase_names.items()):
+                    with phase_cols[i]:
+                        planned = project['phase_hours'][phase_key]
+                        actual = project.get('actual_hours', {}).get(phase_key, 0)
+                        st.metric(
+                            phase_name,
+                            f"{planned}h planned",
+                            delta=f"{actual}h logged" if actual > 0 else "No hours logged"
+                        )
+                
+                # Staff allocation
+                st.subheader("Staff Allocation")
+                
+                # Create a DataFrame for staff allocation table
+                staff_data = []
+                
+                # Role name mapping
+                role_display = {
                     "partner": "Partner",
                     "manager": "Manager",
                     "qualifiedAssistant": "Qualified Assistant",
                     "seniorArticle": "Senior Article",
-                    "juniorArticle": "Junior Article(s)" if audit_category == "veryLarge" else "Junior Article",
+                    "juniorArticle": "Junior Article(s)",
                     "eqcr": "EQCR"
-                }.get(role, role)
+                }
                 
-                chart_data.append({"Role": display_role, "Hours": hours})
-        
-        chart_df = pd.DataFrame(chart_data)
-        
-        # Create bar chart
-        fig = px.bar(
-            chart_df, 
-            x="Role", 
-            y="Hours",
-            title="Staff Hours Allocation",
-            text="Hours",
-            color="Role",
-            color_discrete_sequence=px.colors.qualitative.Set1
-        )
-        
-        fig.update_layout(
-            xaxis_title="Staff Role",
-            yaxis_title="Hours",
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Risk notes
-        st.subheader("Risk Adjustment Notes")
-        for note in risk_notes:
-            st.text(note)
-        
-        # Export functionality
-        st.subheader("Export Options")
-        
-        col_export1, col_export2 = st.columns(2)
-        
-        with col_export1:
-            if st.button("Export to CSV"):
-                # Create CSV content
-                csv_buffer = io.StringIO()
+                for role, hours in project['staff_hours'].items():
+                    if hours == 0:
+                        continue
+                        
+                    days = round(hours / 8)
+                    percentage = round(hours / project['total_hours'] * 100) if project['total_hours'] else 0
+                    
+                    # Get actual hours for this role
+                    actual_hours = 0
+                    if 'team_members' in project and project['team_members'].get(role):
+                        team_member = project['team_members'].get(role)
+                        # Sum hours logged by this team member for this project
+                        for entry in st.session_state.time_entries:
+                            if entry.get('project') == project['company_name'] and entry.get('resource') == team_member:
+                                actual_hours += entry.get('hours', 0)
+                    
+                    staff_data.append({
+                        "Role": role_display.get(role, role),
+                        "Staff Member": project['team_members'].get(role, "Unassigned"),
+                        "Planned Hours": hours,
+                        "Actual Hours": actual_hours,
+                        "Variance": actual_hours - hours,
+                        "% Complete": round((actual_hours / hours * 100) if hours > 0 else 0)
+                    })
                 
-                # Write header information
-                csv_buffer.write(f"Audit Budget Calculator - {datetime.now().strftime('%Y-%m-%d')}\n")
-                csv_buffer.write(f"Company: {company_name}\n")
-                csv_buffer.write(f"Turnover: Rs. {turnover} Crore\n")
-                csv_buffer.write(f"Industry: {industry_sectors[industry_sector]['name']}\n")
-                csv_buffer.write(f"Audit Category: {audit_category_display}\n")
-                csv_buffer.write(f"Listed: {'Yes' if is_listed else 'No'}\n\n")
+                # Display staff allocation table
+                staff_df = pd.DataFrame(staff_data)
+                st.dataframe(staff_df, hide_index=True, use_container_width=True)
                 
-                # Write phase hours
-                csv_buffer.write("Phase Hours:\n")
-                csv_buffer.write(f"Planning,{phase_hours['planning']}\n")
-                csv_buffer.write(f"Fieldwork,{phase_hours['fieldwork']}\n")
-                csv_buffer.write(f"Manager Review,{phase_hours['managerReview']}\n")
-                csv_buffer.write(f"Partner Review,{phase_hours['partnerReview']}\n")
-                csv_buffer.write(f"Total Hours,{total_hours}\n\n")
+                # Bar chart visualization
+                st.subheader("Staff Hours Visualization")
                 
-                # Write staff allocation
-                csv_buffer.write("Staff Allocation:\n")
-                csv_buffer.write("Role,Hours,Days,Percentage,Notes\n")
+                # Prepare chart data
+                chart_data = []
                 for row in staff_data:
-                    csv_buffer.write(f"{row['Role']},{row['Hours']},{row['Days']},{row['Percentage']},{row['Notes']}\n")
+                    chart_data.append({
+                        "Role": row["Role"], 
+                        "Planned Hours": row["Planned Hours"],
+                        "Actual Hours": row["Actual Hours"]
+                    })
                 
-                # Write risk notes
-                csv_buffer.write("\nRisk Adjustment Notes:\n")
-                for note in risk_notes:
-                    csv_buffer.write(f"{note}\n")
+                chart_df = pd.DataFrame(chart_data)
                 
-                # Create download link
-                csv_string = csv_buffer.getvalue()
-                b64 = base64.b64encode(csv_string.encode()).decode()
-                filename = f"audit_budget_{company_name.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.csv"
-                href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download CSV</a>'
-                st.markdown(href, unsafe_allow_html=True)
+                if not chart_df.empty:
+                    # Create bar chart
+                    fig = px.bar(
+                        chart_df, 
+                        x="Role", 
+                        y=["Planned Hours", "Actual Hours"],
+                        title="Staff Hours Allocation - Planned vs. Actual",
+                        barmode='group',
+                        color_discrete_sequence=["#1f77b4", "#ff7f0e"]
+                    )
+                    
+                    fig.update_layout(
+                        xaxis_title="Staff Role",
+                        yaxis_title="Hours",
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+
+# Tab 2: Time Tracking
+with tab2:
+    st.markdown("### Time Tracking")
+    st.markdown("Log and view time entries for each project and team member.")
+    
+    # Project selection
+    project_options = get_project_list()
+    if "No projects available" not in project_options:
+        selected_project = st.selectbox(
+            "Select Project",
+            options=project_options,
+            key="time_tracking_project"
+        )
         
-        with col_export2:
-            if st.button("Export to Excel"):
-                # Create Excel content with pandas
+        if selected_project in st.session_state.projects:
+            project = st.session_state.projects[selected_project]
+            
+            # Display project info
+            st.markdown(f"**Company:** {project['company_name']}")
+            st.markdown(f"**Industry:** {project['industry_name']}")
+            st.markdown(f"**Financial Year End:** {project['financial_year_end']}")
+            
+            # Create columns for time entry form
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Time entry form
+                st.markdown("#### Add Time Entry")
+                
+                # Get the list of team members for this project
+                team_members = [v for k, v in project['team_members'].items() if v]
+                selected_resource = st.selectbox("Team Member", options=team_members)
+                
+                # Map phase keys to display names
+                phase_options = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+                
+                selected_phase = st.selectbox(
+                    "Audit Phase",
+                    options=list(phase_options.keys()),
+                    format_func=lambda x: phase_options[x]
+                )
+                
+                entry_date = st.date_input("Date", datetime.now().date())
+                hours_spent = st.number_input("Hours Spent", min_value=0.1, max_value=24.0, value=8.0, step=0.5)
+                description = st.text_area("Description", "")
+                
+                if st.button("Add Time Entry"):
+                    # Create time entry
+                    time_entry = {
+                        "project": selected_project,
+                        "resource": selected_resource,
+                        "phase": selected_phase,
+                        "date": entry_date.strftime("%Y-%m-%d"),
+                        "hours": hours_spent,
+                        "description": description,
+                        "entry_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    
+                    # Add to time entries list
+                    st.session_state.time_entries.append(time_entry)
+                    
+                    # Update actual hours in project
+                    if 'actual_hours' not in project:
+                        project['actual_hours'] = {
+                            "planning": 0,
+                            "fieldwork": 0,
+                            "managerReview": 0,
+                            "partnerReview": 0,
+                            "total": 0
+                        }
+                    
+                    project['actual_hours'][selected_phase] += hours_spent
+                    project['actual_hours']['total'] += hours_spent
+                    
+                    # Save data
+                    save_data()
+                    
+                    st.success("Time entry added successfully!")
+                    st.experimental_rerun()
+            
+            with col2:
+                # Display time entries for this project
+                st.markdown("#### Recent Time Entries")
+                
+                # Filter time entries for this project
+                project_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
+                
+                if project_entries:
+                    entries_df = pd.DataFrame(project_entries)
+                    entries_df = entries_df.sort_values('date', ascending=False)
+                    
+                    # Format columns for display
+                    display_df = entries_df[['date', 'resource', 'phase', 'hours', 'description']].copy()
+                    display_df['phase'] = display_df['phase'].map(lambda x: phase_options.get(x, x))
+                    
+                    st.dataframe(display_df, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No time entries found for this project.")
+    else:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+
+# Tab 3: Project Reports
+with tab3:
+    st.markdown("### Project Reports")
+    st.markdown("View detailed reports on project progress and time utilization.")
+    
+    # Project selection
+    project_options = get_project_list()
+    if "No projects available" not in project_options:
+        selected_project = st.selectbox(
+            "Select Project",
+            options=project_options,
+            key="project_report_selection"
+        )
+        
+        if selected_project in st.session_state.projects:
+            project = st.session_state.projects[selected_project]
+            
+            # Display project overview
+            st.subheader(f"Project Overview: {project['company_name']}")
+            
+            # Create columns for metrics
+            metrics_cols = st.columns(4)
+            
+            with metrics_cols[0]:
+                st.metric("Turnover", f"Rs. {project['turnover']} Cr")
+            
+            with metrics_cols[1]:
+                st.metric("Industry", project['industry_name'])
+            
+            with metrics_cols[2]:
+                st.metric("Category", project['audit_category_display'])
+            
+            with metrics_cols[3]:
+                st.metric("Listed", "Yes" if project['is_listed'] else "No")
+            
+            # Progress metrics
+            progress_cols = st.columns(3)
+            
+            # Calculate total progress
+            total_planned = project['total_hours']
+            total_actual = project.get('actual_hours', {}).get('total', 0)
+            total_progress = (total_actual / total_planned * 100) if total_planned > 0 else 0
+            
+            with progress_cols[0]:
+                st.metric("Overall Progress", f"{round(total_progress)}%")
+            
+            with progress_cols[1]:
+                st.metric("Planned Hours", total_planned)
+            
+            with progress_cols[2]:
+                st.metric("Actual Hours", total_actual, delta=total_actual - total_planned)
+            
+            # Phase progress visualization
+            st.subheader("Progress by Phase")
+            
+            # Prepare data for phase progress
+            phase_data = []
+            for phase_key, phase_name in {
+                "planning": "Planning",
+                "fieldwork": "Fieldwork",
+                "managerReview": "Manager Review",
+                "partnerReview": "Partner Review"
+            }.items():
+                planned = project['phase_hours'][phase_key]
+                actual = project.get('actual_hours', {}).get(phase_key, 0)
+                progress = (actual / planned * 100) if planned > 0 else 0
+                
+                phase_data.append({
+                    "Phase": phase_name,
+                    "Planned Hours": planned,
+                    "Actual Hours": actual,
+                    "Progress": progress
+                })
+            
+            phase_df = pd.DataFrame(phase_data)
+            
+            # Create horizontal bar chart for phase progress
+            fig = go.Figure()
+            
+            # Add planned hours bars
+            fig.add_trace(go.Bar(
+                y=phase_df['Phase'],
+                x=phase_df['Planned Hours'],
+                name='Planned Hours',
+                orientation='h',
+                marker=dict(color='rgba(0, 123, 255, 0.5)')
+            ))
+            
+            # Add actual hours bars
+            fig.add_trace(go.Bar(
+                y=phase_df['Phase'],
+                x=phase_df['Actual Hours'],
+                name='Actual Hours',
+                orientation='h',
+                marker=dict(color='rgba(40, 167, 69, 0.8)')
+            ))
+            
+            fig.update_layout(
+                title='Planned vs. Actual Hours by Phase',
+                barmode='overlay',
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Resource utilization
+            st.subheader("Resource Utilization")
+            
+            # Get time entries by resource
+            resource_hours = {}
+            
+            for entry in st.session_state.time_entries:
+                if entry.get('project') == selected_project:
+                    resource = entry.get('resource')
+                    hours = entry.get('hours', 0)
+                    
+                    if resource not in resource_hours:
+                        resource_hours[resource] = {
+                            "total": 0,
+                            "planning": 0,
+                            "fieldwork": 0,
+                            "managerReview": 0,
+                            "partnerReview": 0
+                        }
+                    
+                    resource_hours[resource]['total'] += hours
+                    resource_hours[resource][entry.get('phase', 'other')] += hours
+            
+            # Create resource utilization data
+            resource_data = []
+            for resource, hours in resource_hours.items():
+                resource_data.append({
+                    "Resource": resource,
+                    "Total Hours": hours['total'],
+                    "Planning": hours['planning'],
+                    "Fieldwork": hours['fieldwork'],
+                    "Manager Review": hours['managerReview'],
+                    "Partner Review": hours['partnerReview']
+                })
+            
+            if resource_data:
+                resource_df = pd.DataFrame(resource_data)
+                st.dataframe(resource_df, hide_index=True, use_container_width=True)
+                
+                # Create stacked bar chart for resource utilization
+                fig = px.bar(
+                    resource_df, 
+                    x="Resource", 
+                    y=["Planning", "Fieldwork", "Manager Review", "Partner Review"],
+                    title="Hours Breakdown by Resource",
+                    barmode='stack',
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                
+                fig.update_layout(
+                    xaxis_title="Team Member",
+                    yaxis_title="Hours",
+                    height=400,
+                    legend_title="Audit Phase"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No time entries recorded yet for this project.")
+            
+            # Timeline view
+            st.subheader("Project Timeline")
+            
+            # Filter time entries for this project
+            timeline_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
+            
+            if timeline_entries:
+                # Create DataFrame for timeline
+                timeline_df = pd.DataFrame(timeline_entries)
+                timeline_df['date'] = pd.to_datetime(timeline_df['date'])
+                
+                # Group by date and phase
+                daily_hours = timeline_df.groupby(['date', 'phase']).agg({'hours': 'sum'}).reset_index()
+                
+                # Map phase names
+                phase_map = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+                daily_hours['phase'] = daily_hours['phase'].map(lambda x: phase_map.get(x, x))
+                
+                # Create line chart
+                fig = px.line(
+                    daily_hours,
+                    x='date',
+                    y='hours',
+                    color='phase',
+                    title='Daily Hours by Phase',
+                    markers=True
+                )
+                
+                fig.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Hours Logged",
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Create cumulative hours chart
+                timeline_df = timeline_df.sort_values('date')
+                timeline_df['cumulative_hours'] = timeline_df.groupby('phase')['hours'].cumsum()
+                
+                # Map phase names
+                timeline_df['phase'] = timeline_df['phase'].map(lambda x: phase_map.get(x, x))
+                
+                fig = px.line(
+                    timeline_df,
+                    x='date',
+                    y='cumulative_hours',
+                    color='phase',
+                    title='Cumulative Hours by Phase',
+                    line_shape='hv'
+                )
+                
+                fig.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Cumulative Hours",
+                    height=400
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No time entries recorded yet for this project.")
+            
+            # Export options
+            st.subheader("Export Report")
+            
+            if st.button("Export Project Report"):
+                # Create Excel report
                 output = io.BytesIO()
                 
-                # Create a pandas Excel writer using XlsxWriter as the engine
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    # Create a DataFrame for summary information
+                    # Project Summary
                     summary_data = {
                         "Item": [
-                            "Company", "Turnover (Rs. Crore)", "Industry", "Audit Category", "Listed", 
-                            "Total Hours", "Total Days", "EQCR Required"
+                            "Company", "Turnover (Rs. Crore)", "Industry", "Audit Category", 
+                            "Financial Year End", "Listed", "Total Planned Hours", 
+                            "Total Actual Hours", "Progress"
                         ],
                         "Value": [
-                            company_name, turnover, industry_sectors[industry_sector]["name"], 
-                            audit_category_display, "Yes" if is_listed else "No", 
-                            total_hours, round(total_days, 1), "Yes" if eqcr_required else "No"
+                            project['company_name'], project['turnover'], project['industry_name'], 
+                            project['audit_category_display'], project['financial_year_end'],
+                            "Yes" if project['is_listed'] else "No", total_planned, 
+                            total_actual, f"{round(total_progress)}%"
                         ]
                     }
                     summary_df = pd.DataFrame(summary_data)
                     summary_df.to_excel(writer, sheet_name='Summary', index=False)
                     
-                    # Create a DataFrame for phase hours
-                    phase_data = {
-                        "Phase": ["Planning", "Fieldwork", "Manager Review", "Partner Review", "Total"],
-                        "Hours": [
-                            phase_hours["planning"], phase_hours["fieldwork"], 
-                            phase_hours["managerReview"], phase_hours["partnerReview"], 
-                            total_hours
-                        ]
-                    }
-                    phase_df = pd.DataFrame(phase_data)
-                    phase_df.to_excel(writer, sheet_name='Phase Hours', index=False)
+                    # Phase Progress
+                    phase_df.to_excel(writer, sheet_name='Phase Progress', index=False)
                     
-                    # Staff allocation
-                    staff_df.to_excel(writer, sheet_name='Staff Allocation', index=False)
+                    # Resource Utilization
+                    if resource_data:
+                        resource_df.to_excel(writer, sheet_name='Resource Utilization', index=False)
                     
-                    # Risk notes
-                    notes_df = pd.DataFrame({"Risk Notes": risk_notes})
-                    notes_df.to_excel(writer, sheet_name='Risk Notes', index=False)
+                    # Time Entries Detail
+                    if timeline_entries:
+                        entries_df = pd.DataFrame(timeline_entries)
+                        entries_df['phase'] = entries_df['phase'].map(lambda x: phase_map.get(x, x))
+                        entries_df.to_excel(writer, sheet_name='Time Entries', index=False)
                 
                 # Create download link
                 output.seek(0)
                 b64 = base64.b64encode(output.read()).decode()
-                filename = f"audit_budget_{company_name.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Download Excel</a>'
+                filename = f"project_report_{project['company_name'].replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Download Excel Report</a>'
                 st.markdown(href, unsafe_allow_html=True)
-else:
-    # Show instructions when no data is entered
-    with col2:
-        st.info("Please enter company details and risk factors to generate the audit budget.")
-        st.markdown("""
-        ### How to use this calculator:
-        1. Enter the company name and turnover
-        2. Specify if the company is listed
-        3. Select the industry sector
-        4. Adjust risk factors as needed
-        5. View the calculated budget and export options
-        """)
+    else:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+
+# Tab 4: Team Reports
+with tab4:
+    st.markdown("### Team Reports")
+    st.markdown("View reports on team member utilization across all projects.")
+    
+    # Get all team members across projects
+    all_team_members = set()
+    for project_name, project in st.session_state.projects.items():
+        if 'team_members' in project:
+            for role, member in project['team_members'].items():
+                if member:  # Only add non-empty team members
+                    all_team_members.add(member)
+    
+    if all_team_members:
+        # Team member selection
+        selected_member = st.selectbox(
+            "Select Team Member",
+            options=sorted(list(all_team_members))
+        )
         
+        # Date range selection for filtering
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", datetime.now().replace(day=1).date())
+        with col2:
+            end_date = st.date_input("End Date", datetime.now().date())
+        
+        # Filter time entries for selected team member and date range
+        member_entries = [
+            entry for entry in st.session_state.time_entries 
+            if entry.get('resource') == selected_member
+            and start_date.strftime('%Y-%m-%d') <= entry.get('date', '') <= end_date.strftime('%Y-%m-%d')
+        ]
+        
+        if member_entries:
+            # Calculate total hours
+            total_hours = sum(entry.get('hours', 0) for entry in member_entries)
+            
+            # Group hours by project
+            project_hours = {}
+            for entry in member_entries:
+                project = entry.get('project', 'Unknown')
+                if project not in project_hours:
+                    project_hours[project] = 0
+                project_hours[project] += entry.get('hours', 0)
+            
+            # Group hours by phase
+            phase_hours = {}
+            for entry in member_entries:
+                phase = entry.get('phase', 'Unknown')
+                if phase not in phase_hours:
+                    phase_hours[phase] = 0
+                phase_hours[phase] += entry.get('hours', 0)
+            
+            # Display summary metrics
+            st.subheader(f"Summary for {selected_member}")
+            
+            metrics_cols = st.columns(3)
+            with metrics_cols[0]:
+                st.metric("Total Hours", f"{total_hours}")
+            
+            with metrics_cols[1]:
+                st.metric("Projects", f"{len(project_hours)}")
+            
+            with metrics_cols[2]:
+                daily_avg = total_hours / max(1, (end_date - start_date).days + 1)
+                st.metric("Daily Average", f"{round(daily_avg, 1)}")
+            
+            # Create charts
+            chart_cols = st.columns(2)
+            
+            with chart_cols[0]:
+                # Project distribution pie chart
+                project_data = pd.DataFrame({
+                    'Project': list(project_hours.keys()),
+                    'Hours': list(project_hours.values())
+                })
+                
+                fig = px.pie(
+                    project_data,
+                    values='Hours',
+                    names='Project',
+                    title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})'
+                )
+                
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                fig.update_layout(height=400)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with chart_cols[1]:
+                # Phase distribution pie chart
+                phase_map = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+                
+                phase_data = pd.DataFrame({
+                    'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],
+                    'Hours': list(phase_hours.values())
+                })
+                
+                fig = px.pie(
+                    phase_data,
+                    values='Hours',
+                    names='Phase',
+                    title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})'
+                )
+                
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                fig.update_layout(height=400)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Time entries table
+            st.subheader("Time Entries")
+            
+            entries_df = pd.DataFrame(member_entries)
+            if not entries_df.empty:
+                entries_df['date'] = pd.to_datetime(entries_df['date'])
+                entries_df = entries_df.sort_values('date', ascending=False)
+                
+                # Map phase names
+                entries_df['phase'] = entries_df['phase'].map(lambda x: phase_map.get(x, x))
+                
+                # Display entries
+                st.dataframe(
+                    entries_df[['date', 'project', 'phase', 'hours', 'description']],
+                    hide_index=True,
+                    use_container_width=True
+                )
+            
+            # Daily hours chart
+            st.subheader("Daily Hours Trend")
+            
+            # Create daily hours DataFrame
+            entries_df['date'] = pd.to_datetime(entries_df['date'])
+            daily_df = entries_df.groupby(entries_df['date'].dt.date).agg({'hours': 'sum'}).reset_index()
+            
+            fig = px.bar(
+                daily_df,
+                x='date',
+                y='hours',
+                title=f'Daily Hours ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                color_discrete_sequence=['#1f77b4']
+            )
+            
+            fig.update_layout(
+                xaxis_title="Date",
+                yaxis_title="Hours",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Export team member report
+            if st.button("Export Team Member Report"):
+                # Create Excel report
+                output = io.BytesIO()
+                
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    # Summary
+                    summary_data = {
+                        "Item": ["Team Member", "Date Range", "Total Hours", "Projects", "Daily Average"],
+                        "Value": [
+                            selected_member,
+                            f"{start_date.strftime('%d %b %Y')} - {end_date.strftime('%d %b %Y')}",
+                            total_hours,
+                            len(project_hours),
+                            f"{round(daily_avg, 1)}"
+                        ]
+                    }
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                    
+                    # Project Hours
+                    project_data.to_excel(writer, sheet_name='Project Hours', index=False)
+                    
+                    # Phase Hours
+                    phase_data.to_excel(writer, sheet_name='Phase Hours', index=False)
+                    
+                    # Daily Hours
+                    daily_df.to_excel(writer, sheet_name='Daily Hours', index=False)
+                    
+                    # Time Entries
+                    entries_df[['date', 'project', 'phase', 'hours', 'description']].to_excel(
+                        writer, sheet_name='Time Entries', index=False
+                    )
+                
+                # Create download link
+                output.seek(0)
+                b64 = base64.b64encode(output.read()).decode()
+                filename = f"team_report_{selected_member.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Download Excel Report</a>'
+                st.markdown(href, unsafe_allow_html=True)
+        else:
+            st.info(f"No time entries found for {selected_member} in the selected date range.")
+    else:
+        st.info("No team members assigned to any projects yet.")
+
 # Footer
 st.markdown("---")
-st.caption("Statutory Audit Budget Calculator - A tool for audit planning and resource allocation")
+st.caption("Statutory Audit Budget Calculator & Time Tracker - A tool for audit planning and resource tracking")
