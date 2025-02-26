@@ -1325,7 +1325,6 @@ with tab2:
                     save_data()
 
                     st.success("Time entry added successfully!")
-                    st.rerun() #Important
 
             with col2:
                 # Display time entries for this project
