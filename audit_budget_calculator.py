@@ -43,7 +43,7 @@ logging.info("Application starting...")
 is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
 if is_cloud:
     from cloud_storage import CloudStorageManager
-    BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')
+    BUCKET_NAME = os.environ.get('audit-app-storage')
     cloud_storage = CloudStorageManager(BUCKET_NAME)
 else:
     cloud_storage = None
