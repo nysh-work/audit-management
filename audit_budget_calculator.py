@@ -38,9 +38,14 @@ logging.basicConfig(
 # Log application start
 logging.info("Application starting...")
 
-# Cloud Storage configuration
-BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')
-cloud_storage = CloudStorageManager(BUCKET_NAME)
+# Cloud Storage initialization
+is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
+if is_cloud:
+    from cloud_storage import CloudStorageManager
+    BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')
+    cloud_storage = CloudStorageManager(BUCKET_NAME)
+else:
+    cloud_storage = None
 
 # Define the database location (can be changed if needed)
 def get_db_path():
@@ -244,41 +249,67 @@ def load_data():
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
-def backup_database(event = none, context = none):
-    """Cloud Function triggered by Cloud Scheduler to backup the database."""
-    # Set up variables
-    bucket_name = os.environ.get('audit-app-storage')
+def backup_database(event=None, context=None):
+    """Creates a timestamped backup of the database.
+    If called from Streamlit UI, event and context will be None.
+    If called from Cloud Functions, event and context will be provided.
+    """
+    import os
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
     
-    # Connect to the bucket
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
+    # Define paths
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    backups_dir = os.path.join(app_data_dir, 'backups')
     
-    # Get the current database blob
-    db_blob = bucket.blob('data/audit_management.db')
+    # Create backups directory if it doesn't exist
+    os.makedirs(backups_dir, exist_ok=True)
     
-    # If the database exists
-    if db_blob.exists():
-        # Create a timestamp for the backup
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_blob_name = f"backups/audit_management_{timestamp}.db"
+    # Source database file
+    db_file = os.path.join(data_dir, 'audit_management.db')
+    
+    # Check if database exists
+    if not os.path.exists(db_file):
+        return False, "Database file not found."
+    
+    # Create timestamp for backup filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = os.path.join(backups_dir, f"audit_management_{timestamp}.db")
+    
+    try:
+        # Copy the database file
+        shutil.copy2(db_file, backup_file)
         
-        # Copy the blob to create a backup
-        bucket.copy_blob(db_blob, bucket, backup_blob_name)
+        # Also backup the JSON and CSV files if they exist
+        json_file = os.path.join(data_dir, 'projects.json')
+        if os.path.exists(json_file):
+            shutil.copy2(json_file, os.path.join(backups_dir, f"projects_{timestamp}.json"))
+            
+        csv_file = os.path.join(data_dir, 'time_entries.csv')
+        if os.path.exists(csv_file):
+            shutil.copy2(csv_file, os.path.join(backups_dir, f"time_entries_{timestamp}.csv"))
         
-        # Keep only the latest 10 backups
-        blobs = client.list_blobs(bucket_name, prefix="backups/")
-        all_backups = sorted([(blob.name, blob.updated) for blob in blobs 
-                             if blob.name.startswith("backups/audit_management_")],
-                            key=lambda x: x[1], reverse=True)
+        # If running in Cloud environment, also upload to Cloud Storage
+        is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
+        if is_cloud and 'cloud_storage' in globals():
+            # Upload the backup to Cloud Storage
+            cloud_storage.upload_file(backup_file, f"backups/audit_management_{timestamp}.db")
+            
+            # Only keep the latest 10 backups in Cloud Storage
+            backup_blobs = cloud_storage.list_files(prefix="backups/")
+            if len(backup_blobs) > 10:
+                # Sort the backup blobs by name (which includes timestamp)
+                backup_blobs.sort(reverse=True)
+                # Delete older backups (keep the latest 10)
+                for blob_name in backup_blobs[10:]:
+                    cloud_storage.bucket.blob(blob_name).delete()
         
-        # Delete older backups (keep the latest 10)
-        if len(all_backups) > 10:
-            for name, _ in all_backups[10:]:
-                bucket.blob(name).delete()
-        
-        return f"Backup created: {backup_blob_name}"
-    else:
-        return "No database file found to backup"
+        return True, f"Backup created successfully: audit_management_{timestamp}.db"
+    except Exception as e:
+        return False, f"Backup failed: {str(e)}"
 
 def restore_database(backup_file):
     """Restores the database from a backup file."""
