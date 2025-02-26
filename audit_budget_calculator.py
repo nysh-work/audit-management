@@ -11,44 +11,91 @@ import json
 import os
 
 # --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
+# --- DATABASE CONFIGURATION ---
+import os
+from pathlib import Path
+# --- LOGGING SETUP ---
+import logging
+import os
+from pathlib import Path
+
+# Define the app data directory
+home_dir = str(Path.home())
+app_data_dir = os.path.join(home_dir, '.audit_management_app')
+os.makedirs(app_data_dir, exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(app_data_dir, 'app.log')),
+        logging.StreamHandler()
+    ]
+)
+
+# Log application start
+logging.info("Application starting...")
+
+# Define the database location (can be changed if needed)
+def get_db_path():
+    """Returns the path to the database file."""
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    
+    # Create necessary directories
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Return database path
+    return os.path.join(data_dir, 'audit_management.db')
+
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
-    # Create data directory if it doesn't exist
-    os.makedirs('data', exist_ok=True)  # Good practice: ensure 'data' dir exists
+    try:
+        # Get the database path
+        db_path = get_db_path()
+        logging.info(f"Initializing database at {db_path}")
+        
+        # Connect to the database
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        c = conn.cursor()
 
-    conn = sqlite3.connect('data/audit_management.db', check_same_thread=False)
-    c = conn.cursor()
+        # Create projects table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                data TEXT,
+                creation_date TEXT
+            )
+        ''')
 
-    # Create projects table if it doesn't exist
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            data TEXT,
-            creation_date TEXT
-        )
-    ''')
+        # Create time_entries table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS time_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project TEXT,
+                resource TEXT,
+                phase TEXT,
+                date TEXT,
+                hours REAL,
+                description TEXT,
+                entry_time TEXT
+            )
+        ''')
 
-    # Create time_entries table if it doesn't exist
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS time_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project TEXT,
-            resource TEXT,
-            phase TEXT,
-            date TEXT,
-            hours REAL,
-            description TEXT,
-            entry_time TEXT
-        )
-    ''')
-
-    conn.commit()
-    return conn
+        conn.commit()
+        return conn
+    except Exception as e:
+        error_msg = f"Database initialization error: {str(e)}"
+        logging.error(error_msg)
+        st.error(error_msg)
+        raise
 
 def save_projects_to_db():
     """Saves projects from session state to the database."""
-    conn = init_db()  # Get the database connection
+    conn = init_db()  # This now uses the absolute path
     c = conn.cursor()
     c.execute("DELETE FROM projects")  # Clear existing data
 
@@ -63,7 +110,7 @@ def save_projects_to_db():
 
 def load_projects_from_db():
     """Loads projects from the database into session state."""
-    conn = init_db()
+    conn = init_db()  # This now uses the absolute path
     c = conn.cursor()
     c.execute("SELECT name, data FROM projects")
     projects = {name: json.loads(data) for name, data in c.fetchall()}
@@ -95,7 +142,7 @@ def save_time_entries_to_db():
 
 def load_time_entries_from_db():
     """Loads time entries from the database into session state."""
-    conn = init_db()
+    conn = init_db()  # This now uses the absolute path
     c = conn.cursor()
     c.execute("SELECT project, resource, phase, date, hours, description, entry_time FROM time_entries")
     time_entries = [
@@ -112,8 +159,6 @@ def load_time_entries_from_db():
     conn.close()
     return time_entries
 
-
-
 # --- DATA LOADING AND SAVING (Corrected Order) ---
 
 def save_data():
@@ -121,41 +166,70 @@ def save_data():
     save_projects_to_db()
     save_time_entries_to_db()
 
+    # Get the data directory path
+    import os
+    from pathlib import Path
+    
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    
     # Backup to files (optional, for extra safety/compatibility)
     try:
-        with open('data/projects.json', 'w') as f:  # Save in the 'data' directory
+        projects_file = os.path.join(data_dir, 'projects.json')
+        with open(projects_file, 'w') as f:
             json.dump(st.session_state.projects, f)
 
+        time_entries_file = os.path.join(data_dir, 'time_entries.csv')
         df = pd.DataFrame(st.session_state.time_entries)
         if not df.empty:
-            df.to_csv('data/time_entries.csv', index=False) # Save in 'data' directory
+            df.to_csv(time_entries_file, index=False)
     except Exception as e:
         st.error(f"Error saving data to files: {e}")
-
 
 def load_data():
     """Loads project and time entry data from the database, with fallback to files."""
     try:
+        # Import necessary modules
+        import os
+        from pathlib import Path
+        
+        # Define the app data paths
+        home_dir = str(Path.home())
+        app_data_dir = os.path.join(home_dir, '.audit_management_app')
+        data_dir = os.path.join(app_data_dir, 'data')
+        
         # Load from database
         st.session_state.projects = load_projects_from_db()
         st.session_state.time_entries = load_time_entries_from_db()
 
         # Fallback to files if database is empty (for backward compatibility)
-        if not st.session_state.projects and os.path.exists('data/projects.json'):
-            with open('data/projects.json', 'r') as f:
+        projects_file = os.path.join(data_dir, 'projects.json')
+        time_entries_file = os.path.join(data_dir, 'time_entries.csv')
+        
+        if not st.session_state.projects and os.path.exists(projects_file):
+            with open(projects_file, 'r') as f:
                 st.session_state.projects = json.load(f)
-            save_projects_to_db() # Save loaded data to DB
+            save_projects_to_db()  # Save loaded data to DB
 
-        if not st.session_state.time_entries and os.path.exists('data/time_entries.csv'):
-            df = pd.read_csv('data/time_entries.csv')
+        if not st.session_state.time_entries and os.path.exists(time_entries_file):
+            df = pd.read_csv(time_entries_file)
             st.session_state.time_entries = df.to_dict('records')
-            save_time_entries_to_db() # Save loaded data to DB
+            save_time_entries_to_db()  # Save loaded data to DB
+
+        # Log the loading operation
+        logging.info(f"Data loaded successfully. Projects: {len(st.session_state.projects)}, Time entries: {len(st.session_state.time_entries)}")
 
     except Exception as e:
-        st.error(f"Error loading data: {e}")
-        # Consider re-raising the exception or taking other action here
-        # if a loading error is critical.  For a first run, it's okay.
-
+        error_msg = f"Error loading data: {str(e)}"
+        logging.error(error_msg)
+        st.error(error_msg)
+        
+        # Initialize with empty data if loading fails
+        if 'projects' not in st.session_state:
+            st.session_state.projects = {}
+        if 'time_entries' not in st.session_state:
+            st.session_state.time_entries = []
 
 # --- STREAMLIT SETUP AND INITIALIZATION ---
 
@@ -406,8 +480,9 @@ def styled_card(title, content):
     </div>
     """, unsafe_allow_html=True)
 
-# --- INITIALIZE DATABASE ---
-init_db()  # Initialize the database *BEFORE* session state
+# --- INITIALIZE AND LOAD DATA ---
+init_db()  # Initialize the database *first*
+load_data() # *Then* load data
 
 # Initialize session state (do this before using it)
 if 'projects' not in st.session_state:
@@ -429,11 +504,6 @@ with st.sidebar:
     st.title("Audit Management")
     st.button('Toggle Light/Dark Mode', on_click=toggle_theme) #Theme toggle
     st.divider()
-
-# --- INITIALIZE AND LOAD DATA ---
-init_db()  # Initialize the database *first*
-load_data() # *Then* load data
-
 
 # --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
 tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs([
