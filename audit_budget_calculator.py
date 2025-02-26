@@ -244,49 +244,41 @@ def load_data():
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
-def backup_database():
-    """Creates a timestamped backup of the database."""
-    import os
-    import shutil
-    from datetime import datetime
-    from pathlib import Path
+def backup_database(event, context):
+    """Cloud Function triggered by Cloud Scheduler to backup the database."""
+    # Set up variables
+    bucket_name = os.environ.get('BUCKET_NAME')
     
-    # Define paths
-    home_dir = str(Path.home())
-    app_data_dir = os.path.join(home_dir, '.audit_management_app')
-    data_dir = os.path.join(app_data_dir, 'data')
-    backups_dir = os.path.join(app_data_dir, 'backups')
+    # Connect to the bucket
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
     
-    # Create backups directory if it doesn't exist
-    os.makedirs(backups_dir, exist_ok=True)
+    # Get the current database blob
+    db_blob = bucket.blob('data/audit_management.db')
     
-    # Source database file
-    db_file = os.path.join(data_dir, 'audit_management.db')
-    
-    # Check if database exists
-    if not os.path.exists(db_file):
-        return False, "Database file not found."
-    
-    # Create timestamp for backup filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = os.path.join(backups_dir, f"audit_management_{timestamp}.db")
-    
-    try:
-        # Copy the database file
-        shutil.copy2(db_file, backup_file)
+    # If the database exists
+    if db_blob.exists():
+        # Create a timestamp for the backup
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_blob_name = f"backups/audit_management_{timestamp}.db"
         
-        # Also backup the JSON and CSV files if they exist
-        json_file = os.path.join(data_dir, 'projects.json')
-        if os.path.exists(json_file):
-            shutil.copy2(json_file, os.path.join(backups_dir, f"projects_{timestamp}.json"))
-            
-        csv_file = os.path.join(data_dir, 'time_entries.csv')
-        if os.path.exists(csv_file):
-            shutil.copy2(csv_file, os.path.join(backups_dir, f"time_entries_{timestamp}.csv"))
+        # Copy the blob to create a backup
+        bucket.copy_blob(db_blob, bucket, backup_blob_name)
         
-        return True, f"Backup created successfully: audit_management_{timestamp}.db"
-    except Exception as e:
-        return False, f"Backup failed: {str(e)}"
+        # Keep only the latest 10 backups
+        blobs = client.list_blobs(bucket_name, prefix="backups/")
+        all_backups = sorted([(blob.name, blob.updated) for blob in blobs 
+                             if blob.name.startswith("backups/audit_management_")],
+                            key=lambda x: x[1], reverse=True)
+        
+        # Delete older backups (keep the latest 10)
+        if len(all_backups) > 10:
+            for name, _ in all_backups[10:]:
+                bucket.blob(name).delete()
+        
+        return f"Backup created: {backup_blob_name}"
+    else:
+        return "No database file found to backup"
 
 def restore_database(backup_file):
     """Restores the database from a backup file."""
