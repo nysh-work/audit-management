@@ -456,13 +456,6 @@ def load_data():
     except Exception as e:
         st.error(f"Error loading data: {e}")
 
-# Try to load data at startup
-try:
-    load_data()
-except:
-    # First run or file doesn't exist yet
-    pass
-
 # Title and navigation
 st.title("Statutory Audit Budget Calculator & Time Tracker")
 
@@ -1720,6 +1713,8 @@ with tab4:
 def create_dashboard():
     st.markdown("### Dashboard")
     st.markdown("Overview of all audit projects and team activities.")
+    # Move this line to after the dashboard function is defined
+    tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
     
     # Check if projects exist
     if not st.session_state.projects:
