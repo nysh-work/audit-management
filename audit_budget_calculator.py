@@ -638,6 +638,14 @@ with tab_dashboard:
     create_dashboard()  # Call the function to populate the dashboard *inside* its tab
 
 with tab1:
+    industry_sectors = {
+    "MFG": {"name": "Manufacturing", "factor": 1.0},
+    "TRD": {"name": "Trading", "factor": 0.9},
+    "SER": {"name": "Services", "factor": 0.95},
+    "FIN": {"name": "Financial Services", "factor": 1.3},
+    "REC": {"name": "Real Estate and Construction", "factor": 1.2},
+    "NGO": {"name": "Not for profit", "factor": 0.85}
+}
     # ... (Your existing code for tab1 - Budget Calculator) ...
     st.markdown("### Audit Budget Calculator")
     st.markdown("Calculate audit budgets based on company size, industry, and risk factors.")
