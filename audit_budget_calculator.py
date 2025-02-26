@@ -9,6 +9,7 @@ import io
 import base64
 import json
 import os
+from cloud_storage import CloudStorageManager
 
 # --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
 # --- DATABASE CONFIGURATION ---
@@ -37,18 +38,31 @@ logging.basicConfig(
 # Log application start
 logging.info("Application starting...")
 
+# Cloud Storage configuration
+BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')
+cloud_storage = CloudStorageManager(BUCKET_NAME)
+
 # Define the database location (can be changed if needed)
 def get_db_path():
     """Returns the path to the database file."""
+    # Define local paths
     home_dir = str(Path.home())
     app_data_dir = os.path.join(home_dir, '.audit_management_app')
     data_dir = os.path.join(app_data_dir, 'data')
+    db_file = os.path.join(data_dir, 'audit_management.db')
     
     # Create necessary directories
     os.makedirs(data_dir, exist_ok=True)
     
-    # Return database path
-    return os.path.join(data_dir, 'audit_management.db')
+    # In cloud environment, download the DB file from Cloud Storage if it exists
+    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
+    if is_cloud:
+        # Check if DB file exists in Cloud Storage
+        if cloud_storage.file_exists('data/audit_management.db'):
+            # Download the file from Cloud Storage
+            cloud_storage.download_file('data/audit_management.db', db_file)
+    
+    return db_file
 
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
@@ -166,13 +180,12 @@ def save_data():
     save_projects_to_db()
     save_time_entries_to_db()
 
-    # Get the data directory path
-    import os
-    from pathlib import Path
-    
-    home_dir = str(Path.home())
-    app_data_dir = os.path.join(home_dir, '.audit_management_app')
-    data_dir = os.path.join(app_data_dir, 'data')
+    # Get the database file path
+    db_file = get_db_path()
+    # In cloud environment, upload the DB file to Cloud Storage
+    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
+    if is_cloud and os.path.exists(db_file):
+        cloud_storage.upload_file(db_file, 'data/audit_management.db')
     
     # Backup to files (optional, for extra safety/compatibility)
     try:
