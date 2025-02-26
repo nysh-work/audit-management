@@ -247,7 +247,7 @@ def load_data():
 def backup_database(event, context):
     """Cloud Function triggered by Cloud Scheduler to backup the database."""
     # Set up variables
-    bucket_name = os.environ.get('BUCKET_NAME')
+    bucket_name = os.environ.get('audit-app-storage')
     
     # Connect to the bucket
     client = storage.Client()
