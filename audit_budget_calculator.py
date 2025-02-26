@@ -628,9 +628,11 @@ def create_dashboard():
       st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No time entries recorded yet.")
-
-
-
+        
+def get_project_list():
+    if not st.session_state.projects:
+        return ["No projects available"]
+    return list(st.session_state.projects.keys())
 
 # --- TAB CONTENT (Using 'with' blocks for each tab) ---
 
