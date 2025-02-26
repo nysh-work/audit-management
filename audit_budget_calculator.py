@@ -405,6 +405,10 @@ def styled_card(title, content):
         {content}
     </div>
     """, unsafe_allow_html=True)
+    
+# --- INITIALIZE DATABASE ---
+init_db()  # Initialize the database *BEFORE* session state
+
 # Initialize session state (do this before using it)
 if 'projects' not in st.session_state:
     st.session_state.projects = {}
@@ -628,7 +632,7 @@ def create_dashboard():
       st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No time entries recorded yet.")
-        
+
 def get_project_list():
     if not st.session_state.projects:
         return ["No projects available"]
