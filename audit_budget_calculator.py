@@ -9,12 +9,255 @@ import base64
 import json
 import os
 
+# Define color palette - Medium-inspired dark mode
+COLOR_PRIMARY = "#1e88e5"       # Primary blue
+COLOR_SECONDARY = "#00e676"     # Success green
+COLOR_WARNING = "#ff9800"       # Warning orange
+COLOR_DANGER = "#f44336"        # Danger red
+COLOR_BACKGROUND = "#121212"    # Main background
+COLOR_CARD_BACKGROUND = "#1e1e1e"  # Lighter background for cards
+COLOR_TEXT = "#e6e6e6"          # Main text color
+COLOR_TEXT_MUTED = "#9e9e9e"    # Muted text color
+
 # Set page config
 st.set_page_config(
     page_title="Statutory Audit Budget Calculator & Time Tracker",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
+    theme="dark"  # Set the theme to dark
 )
+
+# Apply custom theme
+def apply_custom_theme():
+    # Medium-inspired dark theme
+    st.markdown("""
+    <style>
+        /* Main background and text colors */
+        .stApp {
+            background-color: #121212;
+            color: #e6e6e6;
+        }
+        
+        /* Headers */
+        h1, h2, h3, h4, h5, h6 {
+            color: #f0f0f0 !important;
+            font-family: 'Arial', sans-serif;
+        }
+        
+        /* Metrics */
+        .css-1xarl3l, .css-1offfwp, [data-testid="stMetricValue"] {
+            background-color: #1e1e1e;
+            border: 1px solid #333333;
+            border-radius: 5px;
+            padding: 10px;
+            color: #f0f0f0 !important;
+        }
+        
+        /* Metric delta colors */
+        [data-testid="stMetricDelta"] svg {
+            stroke: #00e676 !important;
+        }
+        
+        [data-testid="stMetricDelta"] [data-testid="stMetricDelta"] svg {
+            stroke: #f44336 !important;
+        }
+        
+        /* Tables */
+        .stDataFrame {
+            background-color: #1e1e1e;
+        }
+        
+        .stDataFrame table {
+            border: 1px solid #333333;
+        }
+        
+        .stDataFrame th {
+            background-color: #2d2d2d !important;
+            color: #e6e6e6 !important;
+            font-weight: 600;
+            border-bottom: 1px solid #444444 !important;
+        }
+        
+        .stDataFrame td {
+            color: #e6e6e6 !important;
+            border-bottom: 1px solid #333333 !important;
+            background-color: #1e1e1e !important;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background-color: #1e88e5 !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 5px !important;
+            padding: 5px 15px !important;
+            transition: background-color 0.3s !important;
+        }
+        
+        .stButton button:hover {
+            background-color: #1565c0 !important;
+        }
+        
+        /* Input fields */
+        .stTextInput input, .stNumberInput input, .stDateInput input {
+            background-color: #2d2d2d !important;
+            color: #e6e6e6 !important;
+            border: 1px solid #444444 !important;
+            border-radius: 5px !important;
+        }
+        
+        /* Select boxes */
+        .stSelectbox > div > div {
+            background-color: #2d2d2d !important;
+            color: #e6e6e6 !important;
+            border: 1px solid #444444 !important;
+            border-radius: 5px !important;
+        }
+        
+        /* Dropdowns */
+        .stSelectbox > div > div > div {
+            background-color: #2d2d2d !important;
+            color: #e6e6e6 !important;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: #1a1a1a !important;
+            border-radius: 5px !important;
+            padding: 5px !important;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #e6e6e6 !important;
+            border-radius: 5px !important;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background-color: #1e88e5 !important;
+            color: white !important;
+        }
+        
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background-color: #1e1e1e !important;
+            color: #e6e6e6 !important;
+            border-radius: 5px !important;
+        }
+        
+        .streamlit-expanderContent {
+            background-color: #1a1a1a !important;
+            border: 1px solid #333333 !important;
+            border-radius: 0 0 5px 5px !important;
+        }
+        
+        /* Checkboxes */
+        .stCheckbox > div > div > div {
+            background-color: #1e88e5 !important;
+        }
+        
+        /* Radio buttons */
+        .stRadio > div {
+            background-color: transparent !important;
+        }
+        
+        .stRadio label {
+            color: #e6e6e6 !important;
+        }
+        
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background-color: #1a1a1a !important;
+            border-right: 1px solid #333333 !important;
+        }
+        
+        [data-testid="stSidebar"] hr {
+            border-color: #333333 !important;
+        }
+        
+        /* Info, warning and error boxes */
+        .stInfo, .stSuccess {
+            background-color: rgba(30, 136, 229, 0.2) !important;
+            color: #e6e6e6 !important;
+            border-left-color: #1e88e5 !important;
+        }
+        
+        .stWarning {
+            background-color: rgba(255, 152, 0, 0.2) !important;
+            color: #e6e6e6 !important;
+            border-left-color: #ff9800 !important;
+        }
+        
+        .stError {
+            background-color: rgba(244, 67, 54, 0.2) !important;
+            color: #e6e6e6 !important;
+            border-left-color: #f44336 !important;
+        }
+        
+        /* Box shadows for cards */
+        div.row-widget.stButton {
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 4px !important;
+        }
+        
+        /* Medium-like typography */
+        body {
+            font-family: 'Charter', 'Georgia', serif !important;
+            line-height: 1.8 !important;
+        }
+        
+        /* Custom card styling */
+        .custom-card {
+            background-color: #1e1e1e;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card-title {
+            color: #f0f0f0;
+            font-family: 'Arial', sans-serif;
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* File uploader */
+        .uploadedFile {
+            background-color: #2d2d2d !important;
+            color: #e6e6e6 !important;
+            border: 1px solid #444444 !important;
+        }
+        
+        /* Slider */
+        .stSlider div[data-baseweb="slider"] div {
+            background-color: #1e88e5 !important;
+        }
+        
+        /* Pagination buttons */
+        .stPagination button {
+            background-color: #1e1e1e !important;
+            color: #e6e6e6 !important;
+            border: 1px solid #333333 !important;
+        }
+        
+        .stPagination button:hover {
+            background-color: #1e88e5 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Apply the custom theme
+apply_custom_theme()
+
+# Function to create a styled card container
+def styled_card(title, content):
+    st.markdown(f"""
+    <div class="custom-card">
+        <h3 class="card-title">{title}</h3>
+        {content}
+    </div>
+    """, unsafe_allow_html=True)
 
 # Initialize session state for storing data
 if 'projects' not in st.session_state:
@@ -25,6 +268,20 @@ if 'time_entries' not in st.session_state:
 
 if 'current_project' not in st.session_state:
     st.session_state.current_project = None
+
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
+
+# Function to toggle theme
+def toggle_theme():
+    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+    st.rerun()
+
+# Theme toggle in sidebar
+with st.sidebar:
+    st.title("Audit Management")
+    st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
+    st.divider()
 
 # Function to save data to files
 def save_data():
@@ -337,20 +594,23 @@ with tab1:
     
     # Input form in the left column
     with col1:
-        st.header("Audit Details")
-        
-        company_name = st.text_input("Company Name")
-        turnover = st.number_input("Turnover (in Rs. Crore)", min_value=0.0, step=10.0)
-        is_listed = st.checkbox("Listed Company")
-        
-        industry_sector = st.selectbox(
-            "Industry Sector",
-            options=list(industry_sectors.keys()),
-            format_func=lambda x: industry_sectors[x]["name"]
-        )
-        
-        # Financial year end
-        fy_end = st.date_input("Financial Year End", datetime.now().date())
+        with st.container():
+            st.markdown('<div class="custom-card">', unsafe_allow_html=True)
+            st.subheader("Audit Details")
+            
+            company_name = st.text_input("Company Name")
+            turnover = st.number_input("Turnover (in Rs. Crore)", min_value=0.0, step=10.0)
+            is_listed = st.checkbox("Listed Company")
+            
+            industry_sector = st.selectbox(
+                "Industry Sector",
+                options=list(industry_sectors.keys()),
+                format_func=lambda x: industry_sectors[x]["name"]
+            )
+            
+            # Financial year end
+            fy_end = st.date_input("Financial Year End", datetime.now().date())
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # Risk factors with expanders
         with st.expander("Risk Factors", expanded=True):
@@ -426,16 +686,22 @@ with tab1:
     with col2:
         if not company_name and not st.session_state.current_project:
             st.info("Please enter company details and risk factors to generate the audit budget.")
+            
+            # Instructions card
             st.markdown("""
-            ### How to use this calculator:
-            1. Enter the company name and turnover
-            2. Specify if the company is listed
-            3. Select the industry sector
-            4. Adjust risk factors as needed
-            5. Enter the team members assigned to the audit
-            6. Calculate and save the project
-            7. Use the Time Tracking tab to log hours
-            """)
+            <div class="custom-card">
+                <h3 class="card-title">How to use this calculator:</h3>
+                <ol>
+                    <li>Enter the company name and turnover</li>
+                    <li>Specify if the company is listed</li>
+                    <li>Select the industry sector</li>
+                    <li>Adjust risk factors as needed</li>
+                    <li>Enter the team members assigned to the audit</li>
+                    <li>Calculate and save the project</li>
+                    <li>Use the Time Tracking tab to log hours</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
         else:
             # Determine which project to display
             display_project = st.session_state.current_project if not company_name else company_name
@@ -443,9 +709,13 @@ with tab1:
             if display_project in st.session_state.projects:
                 project = st.session_state.projects[display_project]
                 
-                st.header(f"Budget Summary: {project['company_name']}")
+                st.markdown(f"""
+                <div class="custom-card">
+                    <h3 class="card-title">Budget Summary: {project['company_name']}</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                # Top summary cards
+                # Top summary cards in custom styled boxes
                 summary_col1, summary_col2, summary_col3 = st.columns(3)
                 
                 with summary_col1:
@@ -456,10 +726,16 @@ with tab1:
                 
                 with summary_col3:
                     actual_hours = project.get('actual_hours', {}).get('total', 0)
-                    st.metric("Actual Hours Logged", f"{actual_hours}", delta=f"{actual_hours - project['total_hours']}")
+                    delta = actual_hours - project['total_hours']
+                    delta_color = "normal" if delta <= 0 else "inverse"
+                    st.metric("Actual Hours Logged", f"{actual_hours}", delta=f"{delta}", delta_color=delta_color)
                 
                 # Phase hours
-                st.subheader("Audit Phase Hours")
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Audit Phase Hours</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 phase_cols = st.columns(4)
                 
@@ -481,7 +757,11 @@ with tab1:
                         )
                 
                 # Staff allocation
-                st.subheader("Staff Allocation")
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Staff Allocation</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 # Create a DataFrame for staff allocation table
                 staff_data = []
@@ -526,7 +806,11 @@ with tab1:
                 st.dataframe(staff_df, hide_index=True, use_container_width=True)
                 
                 # Bar chart visualization
-                st.subheader("Staff Hours Visualization")
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Staff Hours Visualization</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 # Prepare chart data
                 chart_data = []
@@ -540,21 +824,30 @@ with tab1:
                 chart_df = pd.DataFrame(chart_data)
                 
                 if not chart_df.empty:
-                    # Create bar chart
+                    # Create bar chart with dark mode styling
                     fig = px.bar(
                         chart_df, 
                         x="Role", 
                         y=["Planned Hours", "Actual Hours"],
                         title="Staff Hours Allocation - Planned vs. Actual",
                         barmode='group',
-                        color_discrete_sequence=["#1f77b4", "#ff7f0e"]
+                        color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY]
                     )
                     
                     fig.update_layout(
+                        plot_bgcolor=COLOR_CARD_BACKGROUND,
+                        paper_bgcolor=COLOR_CARD_BACKGROUND,
+                        font_color=COLOR_TEXT,
                         xaxis_title="Staff Role",
                         yaxis_title="Hours",
-                        height=400
+                        height=400,
+                        legend_title_font_color=COLOR_TEXT,
+                        legend_font_color=COLOR_TEXT,
+                        title_font_color=COLOR_TEXT
                     )
+                    
+                    fig.update_xaxes(color=COLOR_TEXT)
+                    fig.update_yaxes(color=COLOR_TEXT)
                     
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -576,16 +869,25 @@ with tab2:
             project = st.session_state.projects[selected_project]
             
             # Display project info
-            st.markdown(f"**Company:** {project['company_name']}")
-            st.markdown(f"**Industry:** {project['industry_name']}")
-            st.markdown(f"**Financial Year End:** {project['financial_year_end']}")
+            st.markdown(f"""
+            <div class="custom-card">
+                <h3 class="card-title">Project Information</h3>
+                <p><strong>Company:</strong> {project['company_name']}</p>
+                <p><strong>Industry:</strong> {project['industry_name']}</p>
+                <p><strong>Financial Year End:</strong> {project['financial_year_end']}</p>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Create columns for time entry form
             col1, col2 = st.columns(2)
             
             with col1:
                 # Time entry form
-                st.markdown("#### Add Time Entry")
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Add Time Entry</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 # Get the list of team members for this project
                 team_members = [v for k, v in project['team_members'].items() if v]
@@ -609,7 +911,7 @@ with tab2:
                 hours_spent = st.number_input("Hours Spent", min_value=0.1, max_value=24.0, value=8.0, step=0.5)
                 description = st.text_area("Description", "")
                 
-                if st.button("Add Time Entry"):
+                if st.button("Add Time Entry", key="add_time_entry"):
                     # Create time entry
                     time_entry = {
                         "project": selected_project,
@@ -645,7 +947,11 @@ with tab2:
             
             with col2:
                 # Display time entries for this project
-                st.markdown("#### Recent Time Entries")
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Recent Time Entries</h3>
+                </div>
+                """, unsafe_allow_html=True)
                 
                 # Filter time entries for this project
                 project_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
@@ -682,7 +988,11 @@ with tab3:
             project = st.session_state.projects[selected_project]
             
             # Display project overview
-            st.subheader(f"Project Overview: {project['company_name']}")
+            st.markdown(f"""
+            <div class="custom-card">
+                <h3 class="card-title">Project Overview: {project['company_name']}</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Create columns for metrics
             metrics_cols = st.columns(4)
@@ -700,6 +1010,12 @@ with tab3:
                 st.metric("Listed", "Yes" if project['is_listed'] else "No")
             
             # Progress metrics
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Progress Metrics</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
             progress_cols = st.columns(3)
             
             # Calculate total progress
@@ -714,10 +1030,16 @@ with tab3:
                 st.metric("Planned Hours", total_planned)
             
             with progress_cols[2]:
-                st.metric("Actual Hours", total_actual, delta=total_actual - total_planned)
+                delta = total_actual - total_planned
+                delta_color = "normal" if delta <= 0 else "inverse"
+                st.metric("Actual Hours", total_actual, delta=delta, delta_color=delta_color)
             
             # Phase progress visualization
-            st.subheader("Progress by Phase")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Progress by Phase</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Prepare data for phase progress
             phase_data = []
@@ -740,7 +1062,7 @@ with tab3:
             
             phase_df = pd.DataFrame(phase_data)
             
-            # Create horizontal bar chart for phase progress
+            # Create horizontal bar chart for phase progress with dark mode styling
             fig = go.Figure()
             
             # Add planned hours bars
@@ -749,7 +1071,7 @@ with tab3:
                 x=phase_df['Planned Hours'],
                 name='Planned Hours',
                 orientation='h',
-                marker=dict(color='rgba(0, 123, 255, 0.5)')
+                marker=dict(color='rgba(30, 136, 229, 0.5)')
             ))
             
             # Add actual hours bars
@@ -758,7 +1080,7 @@ with tab3:
                 x=phase_df['Actual Hours'],
                 name='Actual Hours',
                 orientation='h',
-                marker=dict(color='rgba(40, 167, 69, 0.8)')
+                marker=dict(color='rgba(0, 230, 118, 0.8)')
             ))
             
             fig.update_layout(
@@ -766,13 +1088,24 @@ with tab3:
                 barmode='overlay',
                 height=400,
                 margin=dict(l=20, r=20, t=40, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                plot_bgcolor=COLOR_CARD_BACKGROUND,
+                paper_bgcolor=COLOR_CARD_BACKGROUND,
+                font_color=COLOR_TEXT,
+                title_font_color=COLOR_TEXT
             )
+            
+            fig.update_xaxes(color=COLOR_TEXT)
+            fig.update_yaxes(color=COLOR_TEXT)
             
             st.plotly_chart(fig, use_container_width=True)
             
             # Resource utilization
-            st.subheader("Resource Utilization")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Resource Utilization</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Get time entries by resource
             resource_hours = {}
@@ -810,29 +1143,40 @@ with tab3:
                 resource_df = pd.DataFrame(resource_data)
                 st.dataframe(resource_df, hide_index=True, use_container_width=True)
                 
-                # Create stacked bar chart for resource utilization
+                # Create stacked bar chart for resource utilization with dark mode styling
                 fig = px.bar(
                     resource_df, 
                     x="Resource", 
                     y=["Planning", "Fieldwork", "Manager Review", "Partner Review"],
                     title="Hours Breakdown by Resource",
                     barmode='stack',
-                    color_discrete_sequence=px.colors.qualitative.Set2
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
                 )
                 
                 fig.update_layout(
                     xaxis_title="Team Member",
                     yaxis_title="Hours",
                     height=400,
-                    legend_title="Audit Phase"
+                    legend_title="Audit Phase",
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
                 )
+                
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
                 
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No time entries recorded yet for this project.")
             
             # Timeline view
-            st.subheader("Project Timeline")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Project Timeline</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Filter time entries for this project
             timeline_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
@@ -854,25 +1198,33 @@ with tab3:
                 }
                 daily_hours['phase'] = daily_hours['phase'].map(lambda x: phase_map.get(x, x))
                 
-                # Create line chart
+                # Create line chart with dark mode styling
                 fig = px.line(
                     daily_hours,
                     x='date',
                     y='hours',
                     color='phase',
                     title='Daily Hours by Phase',
-                    markers=True
+                    markers=True,
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
                 )
                 
                 fig.update_layout(
                     xaxis_title="Date",
                     yaxis_title="Hours Logged",
-                    height=400
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
                 )
+                
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Create cumulative hours chart
+                # Create cumulative hours chart with dark mode styling
                 timeline_df = timeline_df.sort_values('date')
                 timeline_df['cumulative_hours'] = timeline_df.groupby('phase')['hours'].cumsum()
                 
@@ -885,23 +1237,35 @@ with tab3:
                     y='cumulative_hours',
                     color='phase',
                     title='Cumulative Hours by Phase',
-                    line_shape='hv'
+                    line_shape='hv',
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
                 )
                 
                 fig.update_layout(
                     xaxis_title="Date",
                     yaxis_title="Cumulative Hours",
-                    height=400
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
                 )
+                
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
                 
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No time entries recorded yet for this project.")
             
             # Export options
-            st.subheader("Export Report")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Export Report</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
-            if st.button("Export Project Report"):
+            if st.button("Export Project Report", key="export_project_report"):
                 # Create Excel report
                 output = io.BytesIO()
                 
@@ -940,7 +1304,7 @@ with tab3:
                 output.seek(0)
                 b64 = base64.b64encode(output.read()).decode()
                 filename = f"project_report_{project['company_name'].replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Download Excel Report</a>'
+                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}" style="text-decoration:none;"><button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">Download Excel Report</button></a>'
                 st.markdown(href, unsafe_allow_html=True)
     else:
         st.info("No projects available. Please create a project in the Budget Calculator tab first.")
@@ -964,6 +1328,12 @@ with tab4:
             "Select Team Member",
             options=sorted(list(all_team_members))
         )
+        
+        st.markdown("""
+        <div class="custom-card">
+            <h3 class="card-title">Date Range</h3>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Date range selection for filtering
         col1, col2 = st.columns(2)
@@ -1000,7 +1370,11 @@ with tab4:
                 phase_hours[phase] += entry.get('hours', 0)
             
             # Display summary metrics
-            st.subheader(f"Summary for {selected_member}")
+            st.markdown(f"""
+            <div class="custom-card">
+                <h3 class="card-title">Summary for {selected_member}</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             metrics_cols = st.columns(3)
             with metrics_cols[0]:
@@ -1017,7 +1391,13 @@ with tab4:
             chart_cols = st.columns(2)
             
             with chart_cols[0]:
-                # Project distribution pie chart
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Hours by Project</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Project distribution pie chart with dark mode styling
                 project_data = pd.DataFrame({
                     'Project': list(project_hours.keys()),
                     'Hours': list(project_hours.values())
@@ -1027,16 +1407,29 @@ with tab4:
                     project_data,
                     values='Hours',
                     names='Project',
-                    title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})'
+                    title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                    color_discrete_sequence=px.colors.sequential.Blues_r
                 )
                 
                 fig.update_traces(textposition='inside', textinfo='percent+label')
-                fig.update_layout(height=400)
+                fig.update_layout(
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+                )
                 
                 st.plotly_chart(fig, use_container_width=True)
             
             with chart_cols[1]:
-                # Phase distribution pie chart
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Hours by Phase</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Phase distribution pie chart with dark mode styling
                 phase_map = {
                     "planning": "Planning",
                     "fieldwork": "Fieldwork",
@@ -1053,16 +1446,27 @@ with tab4:
                     phase_data,
                     values='Hours',
                     names='Phase',
-                    title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})'
+                    title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
                 )
                 
                 fig.update_traces(textposition='inside', textinfo='percent+label')
-                fig.update_layout(height=400)
+                fig.update_layout(
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+                )
                 
                 st.plotly_chart(fig, use_container_width=True)
             
             # Time entries table
-            st.subheader("Time Entries")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Time Entries</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             entries_df = pd.DataFrame(member_entries)
             if not entries_df.empty:
@@ -1080,7 +1484,11 @@ with tab4:
                 )
             
             # Daily hours chart
-            st.subheader("Daily Hours Trend")
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Daily Hours Trend</h3>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Create daily hours DataFrame
             entries_df['date'] = pd.to_datetime(entries_df['date'])
@@ -1091,19 +1499,32 @@ with tab4:
                 x='date',
                 y='hours',
                 title=f'Daily Hours ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
-                color_discrete_sequence=['#1f77b4']
+                color_discrete_sequence=[COLOR_PRIMARY]
             )
             
             fig.update_layout(
                 xaxis_title="Date",
                 yaxis_title="Hours",
-                height=400
+                height=400,
+                plot_bgcolor=COLOR_CARD_BACKGROUND,
+                paper_bgcolor=COLOR_CARD_BACKGROUND,
+                font_color=COLOR_TEXT,
+                title_font_color=COLOR_TEXT
             )
+            
+            fig.update_xaxes(color=COLOR_TEXT)
+            fig.update_yaxes(color=COLOR_TEXT)
             
             st.plotly_chart(fig, use_container_width=True)
             
             # Export team member report
-            if st.button("Export Team Member Report"):
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Export Report</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("Export Team Member Report", key="export_team_report"):
                 # Create Excel report
                 output = io.BytesIO()
                 
@@ -1140,12 +1561,232 @@ with tab4:
                 output.seek(0)
                 b64 = base64.b64encode(output.read()).decode()
                 filename = f"team_report_{selected_member.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Download Excel Report</a>'
+                href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}" style="text-decoration:none;"><button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">Download Excel Report</button></a>'
                 st.markdown(href, unsafe_allow_html=True)
         else:
             st.info(f"No time entries found for {selected_member} in the selected date range.")
     else:
         st.info("No team members assigned to any projects yet.")
+
+# Add a new Dashboard tab and make it the first tab
+# Add this before creating the other tabs
+def create_dashboard():
+    st.markdown("### Dashboard")
+    st.markdown("Overview of all audit projects and team activities.")
+    
+    # Check if projects exist
+    if not st.session_state.projects:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+        return
+    
+    # Summary metrics
+    projects_count = len(st.session_state.projects)
+    total_planned_hours = sum(project.get('total_hours', 0) for project in st.session_state.projects.values())
+    total_actual_hours = sum(project.get('actual_hours', {}).get('total', 0) for project in st.session_state.projects.values())
+    
+    # Team members
+    all_team_members = set()
+    for project in st.session_state.projects.values():
+        if 'team_members' in project:
+            for role, member in project['team_members'].items():
+                if member:
+                    all_team_members.add(member)
+    
+    # Create metrics layout
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Summary Metrics</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Projects", f"{projects_count}")
+    
+    with col2:
+        st.metric("Total Team Members", f"{len(all_team_members)}")
+    
+    with col3:
+        st.metric("Total Planned Hours", f"{total_planned_hours}")
+    
+    with col4:
+        completion_pct = round((total_actual_hours / total_planned_hours * 100) if total_planned_hours else 0)
+        st.metric("Overall Completion", f"{completion_pct}%", f"{total_actual_hours} hours")
+    
+    # Project status overview
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Project Status Overview</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create project status dataframe
+    project_status = []
+    for name, project in st.session_state.projects.items():
+        planned = project.get('total_hours', 0)
+        actual = project.get('actual_hours', {}).get('total', 0)
+        completion = round((actual / planned * 100) if planned else 0)
+        
+        project_status.append({
+            "Project": name,
+            "Category": project.get('audit_category_display', ''),
+            "Industry": project.get('industry_name', ''),
+            "Planned Hours": planned,
+            "Actual Hours": actual,
+            "Completion": f"{completion}%",
+            "Completion_Value": completion,  # For sorting
+            "Status": "Completed" if completion >= 95 else "In Progress" if completion > 0 else "Not Started"
+        })
+    
+    # Sort by completion (descending)
+    project_status = sorted(project_status, key=lambda x: x["Completion_Value"], reverse=True)
+    
+    # Display as dataframe
+    status_df = pd.DataFrame(project_status)
+    if 'Completion_Value' in status_df.columns:
+        status_df = status_df.drop('Completion_Value', axis=1)
+    
+    st.dataframe(status_df, hide_index=True, use_container_width=True)
+    
+    # Recent activity
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Recent Activity</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Get recent time entries
+    recent_entries = sorted(
+        st.session_state.time_entries,
+        key=lambda x: x.get('entry_time', ''),
+        reverse=True
+    )[:10]  # Get 10 most recent entries
+    
+    if recent_entries:
+        # Convert to dataframe
+        recent_df = pd.DataFrame(recent_entries)
+        
+        # Format display
+        phase_map = {
+            "planning": "Planning",
+            "fieldwork": "Fieldwork",
+            "managerReview": "Manager Review",
+            "partnerReview": "Partner Review"
+        }
+        
+        recent_df['phase'] = recent_df['phase'].map(lambda x: phase_map.get(x, x))
+        recent_df['entry_time'] = pd.to_datetime(recent_df['entry_time'])
+        
+        # Display recent entries
+        st.dataframe(
+            recent_df[['entry_time', 'project', 'resource', 'phase', 'hours']],
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("No time entries recorded yet.")
+    
+    # Team utilization chart
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Team Utilization</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Aggregate hours by team member
+    team_hours = {}
+    for entry in st.session_state.time_entries:
+        resource = entry.get('resource', 'Unknown')
+        hours = entry.get('hours', 0)
+        
+        if resource not in team_hours:
+            team_hours[resource] = 0
+        team_hours[resource] += hours
+    
+    if team_hours:
+        # Create dataframe for chart
+        team_df = pd.DataFrame({
+            'Team Member': list(team_hours.keys()),
+            'Hours': list(team_hours.values())
+        }).sort_values('Hours', ascending=False)
+        
+        # Horizontal bar chart with dark mode styling
+        fig = px.bar(
+            team_df,
+            y='Team Member',
+            x='Hours',
+            title='Total Hours by Team Member',
+            orientation='h',
+            color='Hours',
+            color_continuous_scale='Blues'
+        )
+        
+        fig.update_layout(
+            xaxis_title="Hours",
+            yaxis_title="",
+            height=400,
+            plot_bgcolor=COLOR_CARD_BACKGROUND,
+            paper_bgcolor=COLOR_CARD_BACKGROUND,
+            font_color=COLOR_TEXT,
+            title_font_color=COLOR_TEXT
+        )
+        
+        fig.update_xaxes(color=COLOR_TEXT)
+        fig.update_yaxes(color=COLOR_TEXT)
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No time entries recorded yet.")
+    
+    # Hours by audit phase
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Hours by Audit Phase</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Aggregate hours by phase
+    phase_hours = {"planning": 0, "fieldwork": 0, "managerReview": 0, "partnerReview": 0}
+    for entry in st.session_state.time_entries:
+        phase = entry.get('phase', 'Unknown')
+        hours = entry.get('hours', 0)
+        
+        if phase in phase_hours:
+            phase_hours[phase] += hours
+    
+    # Create dataframe for chart
+    phase_df = pd.DataFrame({
+        'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],
+        'Hours': list(phase_hours.values())
+    })
+    
+    # Create doughnut chart with dark mode styling
+    fig = px.pie(
+        phase_df,
+        values='Hours',
+        names='Phase',
+        title='Distribution of Hours by Audit Phase',
+        hole=0.4,
+        color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+    )
+    
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(
+        height=400,
+        plot_bgcolor=COLOR_CARD_BACKGROUND,
+        paper_bgcolor=COLOR_CARD_BACKGROUND,
+        font_color=COLOR_TEXT,
+        title_font_color=COLOR_TEXT
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+# Add dashboard as the first tab
+tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"])
+
+with tab_dashboard:
+    create_dashboard()
 
 # Footer
 st.markdown("---")
