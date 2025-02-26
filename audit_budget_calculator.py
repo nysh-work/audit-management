@@ -1711,6 +1711,14 @@ with tab4:
 # Add a new Dashboard tab and make it the first tab
 # Add this before creating the other tabs
 def create_dashboard():
+    # Define phase_map first
+    phase_map = {
+        "planning": "Planning",
+        "fieldwork": "Fieldwork",
+        "managerReview": "Manager Review",
+        "partnerReview": "Partner Review"
+    }
+    
     st.markdown("### Dashboard")
     st.markdown("Overview of all audit projects and team activities.")
     # Move this line to after the dashboard function is defined
