@@ -599,6 +599,8 @@ if 'current_project' not in st.session_state:
     st.session_state.current_project = None
 if 'theme' not in st.session_state:  # Example for theme switching (optional)
     st.session_state.theme = 'dark'
+
+# Initialize sidebar authentication state if not present
 if 'sidebar_authenticated' not in st.session_state:
     st.session_state.sidebar_authenticated = False
 if 'sidebar_password_attempt' not in st.session_state:
@@ -607,80 +609,79 @@ if 'sidebar_password_attempt' not in st.session_state:
 # Set the sidebar password (you should store this more securely in a real app)
 SIDEBAR_PASSWORD = "audit2025"
 
-# Function to toggle theme (Example - optional)
-def toggle_theme():
-    st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
-    st.rerun()
-
-# Sidebar (optional, but good for navigation/settings)
+# Sidebar content
 with st.sidebar:
-    if not st.session_state.sidebar_authenticated:
-        if not st.session_state.sidebar_password_attempt:
-            # Show a button to trigger password entry
-            if st.button("Unlock Sidebar"):
-                st.session_state.sidebar_password_attempt = True
-                # This will trigger a rerun which will show the password field
-        else:
-            # Show password field
-            password = st.text_input("Enter password:", type="password")
-            if st.button("Submit"):
-                if password == SIDEBAR_PASSWORD:
-                    st.session_state.sidebar_authenticated = True
-                    st.rerun()  # Rerun to refresh the sidebar
-                else:
-                    st.error("Incorrect password")
-            
-            # Option to cancel
-            if st.button("Cancel"):
-                st.session_state.sidebar_password_attempt = False
-                st.rerun()
-                
-    # If authenticated, show the actual sidebar content
-    if st.session_state.sidebar_authenticated:
-        st.title("Audit Management")
-        st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
-        st.divider()
     st.title("Audit Management")
-    st.button('Toggle Light/Dark Mode', on_click=toggle_theme) #Theme toggle
+    
+    # Theme toggle available to everyone
+    st.button('Toggle Light/Dark Mode', on_click=toggle_theme)
     st.divider()
     
-    # Database management section
+    # Database management section with password protection
     with st.expander("Database Management", expanded=False):
-        st.caption("Backup and restore your database")
-        
-        # Backup button
-        if st.button("Create Database Backup"):
-            success, message = backup_database()
-            if success:
-                st.success(message)
+        if not st.session_state.sidebar_authenticated:
+            if not st.session_state.sidebar_password_attempt:
+                # Show a button to trigger password entry
+                if st.button("Unlock Admin Features"):
+                    st.session_state.sidebar_password_attempt = True
+                    st.rerun()  # Rerun to show password field
             else:
-                st.error(message)
-        
-        # Restore from backup
-        st.subheader("Restore from Backup")
-        backups = list_backups()
-        
-        if backups:
-            backup_options = [f"{b['filename']} ({b['modified']})" for b in backups]
-            selected_backup = st.selectbox("Select a backup to restore", backup_options)
-            
-            # Get the selected backup file path
-            selected_index = backup_options.index(selected_backup)
-            selected_file = backups[selected_index]['path']
-            
-            # Confirm restore
-            if st.button("Restore Selected Backup"):
-                confirm = st.checkbox("I understand this will replace the current database")
-                if confirm:
-                    success, message = restore_database(selected_file)
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
-                else:
-                    st.warning("Please confirm that you want to restore from backup")
+                # Show password field
+                password = st.text_input("Enter admin password:", type="password")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Submit"):
+                        if password == SIDEBAR_PASSWORD:
+                            st.session_state.sidebar_authenticated = True
+                            st.rerun()  # Rerun to refresh the sidebar
+                        else:
+                            st.error("Incorrect password")
+                with col2:
+                    # Option to cancel
+                    if st.button("Cancel"):
+                        st.session_state.sidebar_password_attempt = False
+                        st.rerun()
         else:
-            st.info("No backups found")
+            # Show admin controls when authenticated
+            if st.button("Lock Admin Features"):
+                st.session_state.sidebar_authenticated = False
+                st.rerun()
+                
+            st.caption("Backup and restore your database")
+            
+            # Backup button
+            if st.button("Create Database Backup"):
+                success, message = backup_database()
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+            
+            # Restore from backup
+            st.subheader("Restore from Backup")
+            backups = list_backups()
+            
+            if backups:
+                backup_options = [f"{b['filename']} ({b['modified']})" for b in backups]
+                selected_backup = st.selectbox("Select a backup to restore", backup_options)
+                
+                # Get the selected backup file path
+                selected_index = backup_options.index(selected_backup)
+                selected_file = backups[selected_index]['path']
+                
+                # Confirm restore
+                if st.button("Restore Selected Backup"):
+                    confirm = st.checkbox("I understand this will replace the current database")
+                    if confirm:
+                        success, message = restore_database(selected_file)
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                    else:
+                        st.warning("Please confirm that you want to restore from backup")
+            else:
+                st.info("No backups found")
 
 # --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
 tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs([
