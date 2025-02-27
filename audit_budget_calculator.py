@@ -10,6 +10,7 @@ import base64
 import json
 import shutil
 import os
+import glob
 from cloud_storage import CloudStorageManager
 
 # --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
@@ -768,7 +769,6 @@ def authenticate_sidebar():
 # Function to toggle theme (Example - optional)
 def toggle_theme():
     st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
-    st.rerun()
 
 # Sidebar (optional, but good for navigation/settings)
 # Sidebar content
