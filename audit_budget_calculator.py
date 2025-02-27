@@ -11,10 +11,8 @@ import json
 import shutil
 import os
 import glob
-from cloud_storage import CloudStorageManager
 
 # --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
-from pathlib import Path
 # --- LOGGING SETUP ---
 import logging
 from pathlib import Path
@@ -791,6 +789,7 @@ with st.sidebar:
             with converter_tabs[0]:
                 st.caption("Use this for PDFs with simple, well-defined tables")
                 pages = st.text_input("Pages to extract (e.g. 1,3-5 or 'all')", "all")
+                export_format = st.radio("Export Format", ["Individual Tables", "Combined Excel (all tables)", "Combined CSV (all tables)"])
                 
                 if st.button("Convert Simple Tables", key="convert_simple"):
                     # Save uploaded PDF temporarily
@@ -832,19 +831,23 @@ with st.sidebar:
                                 for i, table in enumerate(tables):
                                     st.subheader(f"Table {i+1}")
                                     st.dataframe(table, height=150)
-                                    
-                                    # Create Excel download
-                                    excel_buffer = io.BytesIO()
-                                    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                                        table.to_excel(writer, sheet_name=f'Table_{i+1}', index=False)
-                                    
-                                    excel_data = excel_buffer.getvalue()
-                                    
-                                    # Create CSV download
-                                    csv_buffer = io.BytesIO()
-                                    table.to_csv(csv_buffer, index=False)
-                                    csv_data = csv_buffer.getvalue()
-                                    
+
+                                    # Handle different export formats
+                                    if export_format == "Individual Tables":
+                                        # Display and provide download options for each table
+                                        for i, table in enumerate(tables):
+                                            col1, col2 = st.columns(2)
+                                            
+                                            # Create Excel download
+                                            excel_buffer = io.BytesIO()
+                                            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                                                table.to_excel(writer, sheet_name=f'Table_{i+1}', index=False)
+                                            excel_data = excel_buffer.getvalue()
+                                            # Create CSV download
+                                            csv_buffer = io.BytesIO()
+                                            table.to_csv(csv_buffer, index=False)
+                                            csv_data = csv_buffer.getvalue()
+                                   
                                     col1, col2 = st.columns(2)
                                     with col1:
                                         st.download_button(
@@ -861,22 +864,53 @@ with st.sidebar:
                                             mime="text/csv"
                                         )
                                 
-                                # Option to download all tables in one Excel file
-                                if len(tables) > 1:
-                                    all_excel_buffer = io.BytesIO()
-                                    with pd.ExcelWriter(all_excel_buffer, engine='xlsxwriter') as writer:
+                                if export_format == "Combined Excel (all tables)":
+                                    # Create a single Excel file with multiple sheets
+                                    combined_excel_buffer = io.BytesIO()
+                                    with pd.ExcelWriter(combined_excel_buffer, engine='xlsxwriter') as writer:
                                         for i, table in enumerate(tables):
-                                            table.to_excel(writer, sheet_name=f'Table_{i+1}', index=False)
+                                            sheet_name = f'Table_{i+1}'
+                                            
+                                            # Prepare column names if they're numeric or empty
+                                            if table.columns.dtype == 'int64' or table.columns.isna().any():
+                                                table.columns = [f'Column_{j+1}' for j in range(len(table.columns))]
+                                                
+                                            table.to_excel(writer, sheet_name=sheet_name, index=False)
+                                            
+                                            # Add some formatting
+                                            workbook = writer.book
+                                            worksheet = writer.sheets[sheet_name]
+                                            
+                                            # Format headers
+                                            header_format = workbook.add_format({
+                                                'bold': True,
+                                                'text_wrap': True,
+                                                'valign': 'top',
+                                                'fg_color': '#D7E4BC',
+                                                'border': 1
+                                            })
+                                            
+                                            # Apply header format
+                                            for col_num, value in enumerate(table.columns.values):
+                                                worksheet.write(0, col_num, value, header_format)
+                                                
+                                            # Auto-fit columns
+                                            for col_num, column in enumerate(table.columns):
+                                                column_width = max(
+                                                    table[column].astype(str).map(len).max(),
+                                                    len(str(column))
+                                                )
+                                                worksheet.set_column(col_num, col_num, column_width + 2)
                                     
-                                    all_excel_data = all_excel_buffer.getvalue()
+                                    combined_excel_data = combined_excel_buffer.getvalue()
                                     
+                                    # Provide download button for combined Excel
                                     st.download_button(
                                         label="Download All Tables as Excel",
-                                        data=all_excel_data,
+                                        data=combined_excel_data,
                                         file_name="all_tables.xlsx",
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
-                                    
                         except Exception as e:
                             st.error(f"Error processing PDF: {str(e)}")
             
@@ -884,15 +918,18 @@ with st.sidebar:
                 st.caption("Use this for PDFs with complex tables, merged cells, or unusual layouts")
                 area = st.text_input("Area to extract (top,left,bottom,right in % of page, e.g. '10,10,90,90')", "")
                 complex_pages = st.text_input("Pages to extract", "1")
+                complex_export_format = st.radio("Export Format", 
+                                                ["Individual Tables", "Combined Excel (all tables)", "Combined CSV (all tables)"], 
+                                                key="complex_export_format")
                 
                 if st.button("Convert Complex Tables", key="convert_complex"):
-                    # Similar implementation as the simple tables but with different tabula parameters
                     with st.spinner("Processing complex tables..."):
                         try:
                             import tempfile
                             import os
                             import tabula
                             import pandas as pd
+                            import io
                             
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                                 tmp_file.write(uploaded_file.getvalue())
@@ -916,17 +953,155 @@ with st.sidebar:
                                 guess=True     # Try to guess table structure
                             )
                             
-                            # Rest of the code similar to the simple tables section
+                            # Remove temporary file
                             os.unlink(pdf_path)
                             
                             if len(tables) == 0:
                                 st.error("No tables found in the PDF. Try different area coordinates or the Scanned PDF option.")
                             else:
-                                # Display and download options (same as in simple tables)
-                                # This code is identical to the simple tables section
-                                # So we can omit it here for brevity
-                                pass
+                                # Display individual tables
+                                for i, table in enumerate(tables):
+                                    st.subheader(f"Table {i+1}")
+                                    st.dataframe(table, height=150)
                                 
+                                # Handle different export formats
+                                if complex_export_format == "Individual Tables":
+                                    # Display and provide download options for each table
+                                    for i, table in enumerate(tables):
+                                        col1, col2 = st.columns(2)
+                                        
+                                        # Create Excel download
+                                        excel_buffer = io.BytesIO()
+                                        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                                            table.to_excel(writer, sheet_name=f'Table_{i+1}', index=False)
+                                        excel_data = excel_buffer.getvalue()
+                                        
+                                        # Create CSV download
+                                        csv_buffer = io.BytesIO()
+                                        table.to_csv(csv_buffer, index=False)
+                                        csv_data = csv_buffer.getvalue()
+                                        
+                                        with col1:
+                                            st.download_button(
+                                                label=f"Download Table {i+1} as Excel",
+                                                data=excel_data,
+                                                file_name=f"table_{i+1}.xlsx",
+                                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                            )
+                                        with col2:
+                                            st.download_button(
+                                                label=f"Download Table {i+1} as CSV",
+                                                data=csv_data,
+                                                file_name=f"table_{i+1}.csv",
+                                                mime="text/csv"
+                                            )
+                                
+                                elif complex_export_format == "Combined Excel (all tables)":
+                                    # Create a single Excel file with multiple sheets
+                                    combined_excel_buffer = io.BytesIO()
+                                    with pd.ExcelWriter(combined_excel_buffer, engine='xlsxwriter') as writer:
+                                        for i, table in enumerate(tables):
+                                            sheet_name = f'Table_{i+1}'
+                                            
+                                            # Prepare column names if they're numeric or empty
+                                            if table.columns.dtype == 'int64' or table.columns.isna().any():
+                                                table.columns = [f'Column_{j+1}' for j in range(len(table.columns))]
+                                                
+                                            table.to_excel(writer, sheet_name=sheet_name, index=False)
+                                            
+                                            # Add some formatting
+                                            workbook = writer.book
+                                            worksheet = writer.sheets[sheet_name]
+                                            
+                                            # Format headers
+                                            header_format = workbook.add_format({
+                                                'bold': True,
+                                                'text_wrap': True,
+                                                'valign': 'top',
+                                                'fg_color': '#D7E4BC',
+                                                'border': 1
+                                            })
+                                            
+                                            # Apply header format
+                                            for col_num, value in enumerate(table.columns.values):
+                                                worksheet.write(0, col_num, value, header_format)
+                                                
+                                            # Auto-fit columns
+                                            for col_num, column in enumerate(table.columns):
+                                                column_width = max(
+                                                    table[column].astype(str).map(len).max(),
+                                                    len(str(column))
+                                                )
+                                                worksheet.set_column(col_num, col_num, column_width + 2)
+                                    
+                                    combined_excel_data = combined_excel_buffer.getvalue()
+                                    
+                                    # Provide download button for combined Excel
+                                    st.download_button(
+                                        label="Download All Tables as Excel",
+                                        data=combined_excel_data,
+                                        file_name=f"{uploaded_file.name.split('.')[0]}_all_tables.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                
+                                elif complex_export_format == "Combined CSV (all tables)":
+                                    # Create a single CSV file with all tables concatenated
+                                    # First add a separator column to identify the tables
+                                    all_tables = []
+                                    for i, table in enumerate(tables):
+                                        # Add a table identifier column
+                                        table['Table_Number'] = i + 1
+                                        all_tables.append(table)
+                                    
+                                    # Concatenate all tables
+                                    combined_df = pd.concat(all_tables, ignore_index=True)
+                                    
+                                    # Create CSV download
+                                    csv_data = combined_df.to_csv(index=False).encode('utf-8')
+                                    
+                                    # Provide download button for combined CSV
+                                    st.download_button(
+                                        label="Download All Tables as CSV",
+                                        data=csv_data,
+                                        file_name=f"{uploaded_file.name.split('.')[0]}_all_tables.csv",
+                                        mime="text/csv"
+                                    )
+                                    
+                                    # Also provide option for Excel with single sheet
+                                    st.write("The combined CSV format might be difficult to read for multiple tables. Here's also a single-sheet Excel option:")
+                                    
+                                    excel_buffer = io.BytesIO()
+                                    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                                        combined_df.to_excel(writer, sheet_name='All_Tables', index=False)
+                                        
+                                        # Add some formatting
+                                        workbook = writer.book
+                                        worksheet = writer.sheets['All_Tables']
+                                        
+                                        # Format headers
+                                        header_format = workbook.add_format({
+                                            'bold': True,
+                                            'text_wrap': True,
+                                            'valign': 'top',
+                                            'fg_color': '#D7E4BC',
+                                            'border': 1
+                                        })
+                                        
+                                        # Apply header format
+                                        for col_num, value in enumerate(combined_df.columns.values):
+                                            worksheet.write(0, col_num, value, header_format)
+                                            
+                                        # Add table filter
+                                        worksheet.autofilter(0, 0, len(combined_df), len(combined_df.columns)-1)
+                                    
+                                    excel_data = excel_buffer.getvalue()
+                                    
+                                    st.download_button(
+                                        label="Download All Tables as Single-Sheet Excel",
+                                        data=excel_data,
+                                        file_name=f"{uploaded_file.name.split('.')[0]}_all_tables_single_sheet.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
                         except Exception as e:
                             st.error(f"Error processing complex tables: {str(e)}")
             
