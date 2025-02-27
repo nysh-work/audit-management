@@ -13,12 +13,9 @@ import os
 from cloud_storage import CloudStorageManager
 
 # --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
-# --- DATABASE CONFIGURATION ---
-import os
 from pathlib import Path
 # --- LOGGING SETUP ---
 import logging
-import os
 from pathlib import Path
 
 # Define the app data directory
@@ -43,7 +40,7 @@ logging.info("Application starting...")
 is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
 if is_cloud:
     from cloud_storage import CloudStorageManager
-    BUCKET_NAME = os.environ.get('audit-app-storage')
+    BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')
     cloud_storage = CloudStorageManager(BUCKET_NAME)
 else:
     cloud_storage = None
@@ -186,14 +183,40 @@ def save_data():
     save_projects_to_db()
     save_time_entries_to_db()
 
+    # Define paths
+    home_dir = str(Path.home())
+    app_data_dir = os.path.join(home_dir, '.audit_management_app')
+    data_dir = os.path.join(app_data_dir, 'data')
+    
+    # Create necessary directories
+    os.makedirs(data_dir, exist_ok=True)
+
     # Get the database file path
     db_file = get_db_path()
+    
     # In cloud environment, upload the DB file to Cloud Storage
     is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-    if is_cloud and os.path.exists(db_file):
+    if is_cloud and os.path.exists(db_file) and 'cloud_storage' in globals():
         cloud_storage.upload_file(db_file, 'data/audit_management.db')
+        
+        # Also save projects and time entries directly to Cloud Storage as backup
+        try:
+            # Save projects to a temp file and upload
+            projects_file = os.path.join(data_dir, 'projects.json')
+            with open(projects_file, 'w') as f:
+                json.dump(st.session_state.projects, f)
+            cloud_storage.upload_file(projects_file, 'data/projects.json')
+            
+            # Save time entries to a temp file and upload
+            time_entries_file = os.path.join(data_dir, 'time_entries.csv')
+            df = pd.DataFrame(st.session_state.time_entries)
+            if not df.empty:
+                df.to_csv(time_entries_file, index=False)
+                cloud_storage.upload_file(time_entries_file, 'data/time_entries.csv')
+        except Exception as e:
+            logging.error(f"Error saving data to cloud storage: {e}")
     
-    # Backup to files (optional, for extra safety/compatibility)
+    # Backup to local files (for local development or extra safety)
     try:
         projects_file = os.path.join(data_dir, 'projects.json')
         with open(projects_file, 'w') as f:
@@ -251,16 +274,11 @@ def load_data():
             st.session_state.time_entries = []
 
 def backup_database(event=None, context=None):
-    """Creates a timestamped backup of the database.
-    If called from Streamlit UI, event and context will be None.
-    If called from Cloud Functions, event and context will be provided.
-    """
-    import os
-    import shutil
-    from datetime import datetime
-    from pathlib import Path
+    """Creates a timestamped backup of the database."""
+    # Check if we're in the cloud environment
+    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
     
-    # Define paths
+    # Define paths for local backup
     home_dir = str(Path.home())
     app_data_dir = os.path.join(home_dir, '.audit_management_app')
     data_dir = os.path.join(app_data_dir, 'data')
@@ -269,15 +287,52 @@ def backup_database(event=None, context=None):
     # Create backups directory if it doesn't exist
     os.makedirs(backups_dir, exist_ok=True)
     
-    # Source database file
+    # Create timestamp for backup filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # If we're in the cloud, backup to Cloud Storage
+    if is_cloud and 'cloud_storage' in globals():
+        try:
+            # Reference to the main database blob
+            db_blob = cloud_storage.bucket.blob('data/audit_management.db')
+            
+            if db_blob.exists():
+                # Create the backup blob name
+                backup_blob_name = f"backups/audit_management_{timestamp}.db"
+                
+                # Copy the blob to the backup location
+                cloud_storage.bucket.copy_blob(db_blob, cloud_storage.bucket, backup_blob_name)
+                
+                # Also backup projects.json and time_entries.csv if they exist
+                projects_blob = cloud_storage.bucket.blob('data/projects.json')
+                if projects_blob.exists():
+                    cloud_storage.bucket.copy_blob(
+                        projects_blob, 
+                        cloud_storage.bucket, 
+                        f"backups/projects_{timestamp}.json"
+                    )
+                
+                entries_blob = cloud_storage.bucket.blob('data/time_entries.csv')
+                if entries_blob.exists():
+                    cloud_storage.bucket.copy_blob(
+                        entries_blob, 
+                        cloud_storage.bucket, 
+                        f"backups/time_entries_{timestamp}.csv"
+                    )
+                
+                return True, f"Cloud backup created successfully: {backup_blob_name}"
+            else:
+                return False, "Database file not found in cloud storage."
+        except Exception as e:
+            return False, f"Cloud backup failed: {str(e)}"
+    
+    # For local environment, use the existing code
     db_file = os.path.join(data_dir, 'audit_management.db')
     
     # Check if database exists
     if not os.path.exists(db_file):
         return False, "Database file not found."
     
-    # Create timestamp for backup filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_file = os.path.join(backups_dir, f"audit_management_{timestamp}.db")
     
     try:
@@ -293,32 +348,64 @@ def backup_database(event=None, context=None):
         if os.path.exists(csv_file):
             shutil.copy2(csv_file, os.path.join(backups_dir, f"time_entries_{timestamp}.csv"))
         
-        # If running in Cloud environment, also upload to Cloud Storage
-        is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-        if is_cloud and 'cloud_storage' in globals():
-            # Upload the backup to Cloud Storage
-            cloud_storage.upload_file(backup_file, f"backups/audit_management_{timestamp}.db")
-            
-            # Only keep the latest 10 backups in Cloud Storage
-            backup_blobs = cloud_storage.list_files(prefix="backups/")
-            if len(backup_blobs) > 10:
-                # Sort the backup blobs by name (which includes timestamp)
-                backup_blobs.sort(reverse=True)
-                # Delete older backups (keep the latest 10)
-                for blob_name in backup_blobs[10:]:
-                    cloud_storage.bucket.blob(blob_name).delete()
-        
-        return True, f"Backup created successfully: audit_management_{timestamp}.db"
+        return True, f"Local backup created successfully: audit_management_{timestamp}.db"
     except Exception as e:
-        return False, f"Backup failed: {str(e)}"
+        return False, f"Local backup failed: {str(e)}"
 
-def restore_database(backup_file):
-    """Restores the database from a backup file."""
-    import os
-    import shutil
-    from pathlib import Path
+def restore_database(backup_file_or_blob):
+    """Restores the database from a backup file or blob."""
+    # Check if we're in the cloud environment
+    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
     
-    # Define paths
+    if is_cloud and 'cloud_storage' in globals():
+        try:
+            # Create a backup of the current database first
+            backup_database()
+            
+            # Assume backup_file_or_blob is a blob name in Cloud Storage
+            backup_blob = cloud_storage.bucket.blob(backup_file_or_blob)
+            
+            if not backup_blob.exists():
+                return False, "Backup file not found in cloud storage."
+            
+            # Copy the backup over the current database
+            cloud_storage.bucket.copy_blob(
+                backup_blob, 
+                cloud_storage.bucket, 
+                'data/audit_management.db'
+            )
+            
+            # Extract the timestamp from the backup filename
+            # Format: backups/audit_management_YYYYMMDD_HHMMSS.db
+            filename = os.path.basename(backup_file_or_blob)
+            timestamp = filename.split('audit_management_')[1].split('.db')[0]
+            
+            # Also restore projects.json and time_entries.csv if they exist
+            projects_backup = cloud_storage.bucket.blob(f"backups/projects_{timestamp}.json")
+            if projects_backup.exists():
+                cloud_storage.bucket.copy_blob(
+                    projects_backup, 
+                    cloud_storage.bucket, 
+                    'data/projects.json'
+                )
+                
+            entries_backup = cloud_storage.bucket.blob(f"backups/time_entries_{timestamp}.csv")
+            if entries_backup.exists():
+                cloud_storage.bucket.copy_blob(
+                    entries_backup, 
+                    cloud_storage.bucket, 
+                    'data/time_entries.csv'
+                )
+            
+            # Force a reload of the database
+            db_path = get_db_path()
+            cloud_storage.download_file('data/audit_management.db', db_path)
+            
+            return True, "Database restored successfully from cloud backup. Please refresh the page."
+        except Exception as e:
+            return False, f"Cloud restore failed: {str(e)}"
+    
+    # For local environment, use the existing code
     home_dir = str(Path.home())
     app_data_dir = os.path.join(home_dir, '.audit_management_app')
     data_dir = os.path.join(app_data_dir, 'data')
@@ -333,19 +420,43 @@ def restore_database(backup_file):
             shutil.copy2(db_file, os.path.join(data_dir, f"audit_management_pre_restore_{timestamp}.db"))
         
         # Copy the backup file to the database location
-        shutil.copy2(backup_file, db_file)
+        shutil.copy2(backup_file_or_blob, db_file)
         
         return True, "Database restored successfully. Please restart the application."
     except Exception as e:
-        return False, f"Restore failed: {str(e)}"
+        return False, f"Local restore failed: {str(e)}"
 
 def list_backups():
     """Lists all available database backups."""
-    import os
-    import glob
-    from pathlib import Path
+    # Check if we're in the cloud environment
+    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
     
-    # Define backup directory
+    if is_cloud and 'cloud_storage' in globals():
+        try:
+            # List all backup blobs in cloud storage
+            blobs = list(cloud_storage.client.list_blobs(
+                cloud_storage.bucket_name, 
+                prefix="backups/audit_management_"
+            ))
+            
+            # Sort by creation time (most recent first)
+            blobs.sort(key=lambda x: x.time_created, reverse=True)
+            
+            backups = []
+            for blob in blobs:
+                backups.append({
+                    "filename": os.path.basename(blob.name),
+                    "path": blob.name,  # Store the blob name as the path
+                    "modified": blob.time_created.strftime("%Y-%m-%d %H:%M:%S"),
+                    "size_mb": round(blob.size / (1024 * 1024), 2)
+                })
+            
+            return backups
+        except Exception as e:
+            logging.error(f"Error listing cloud backups: {e}")
+            return []
+    
+    # For local environment, use the existing code
     home_dir = str(Path.home())
     backups_dir = os.path.join(home_dir, '.audit_management_app', 'backups')
     
@@ -711,20 +822,21 @@ with st.sidebar:
             # Restore from backup
             st.subheader("Restore from Backup")
             backups = list_backups()
-            
+
             if backups:
                 backup_options = [f"{b['filename']} ({b['modified']})" for b in backups]
                 selected_backup = st.selectbox("Select a backup to restore", backup_options)
-                
-                # Get the selected backup file path
+    
+                # Get the selected backup file path or blob name
                 selected_index = backup_options.index(selected_backup)
-                selected_file = backups[selected_index]['path']
-                
+                selected_file_or_blob = backups[selected_index]['path']
+    
                 # Confirm restore
                 if st.button("Restore Selected Backup"):
                     confirm = st.checkbox("I understand this will replace the current database")
                     if confirm:
-                        success, message = restore_database(selected_file)
+                        with st.spinner("Restoring backup..."):
+                            success, message = restore_database(selected_file_or_blob)
                         if success:
                             st.success(message)
                         else:
