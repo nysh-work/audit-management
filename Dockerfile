@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     tesseract-ocr \
     libtesseract-dev \
+    default-jre \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
