@@ -100,6 +100,36 @@ def init_db():
                 entry_time TEXT
             )
         ''')
+        
+        # Create team_members table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS team_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                role TEXT,
+                skills TEXT,
+                availability_hours REAL DEFAULT 40.0,
+                hourly_rate REAL DEFAULT 0.0,
+                data TEXT
+            )
+        ''')
+        
+        # Create schedule_entries table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS schedule_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_member TEXT,
+                project TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                hours_per_day REAL DEFAULT 8.0,
+                phase TEXT,
+                status TEXT DEFAULT 'scheduled',
+                notes TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        ''')
 
         conn.commit()
         return conn
@@ -175,12 +205,115 @@ def load_time_entries_from_db():
     conn.close()
     return time_entries
 
+def load_team_members_from_db():
+    """Loads team members from the database into session state."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("SELECT name, role, skills, availability_hours, hourly_rate, data FROM team_members")
+    team_members = {}
+    for name, role, skills, availability_hours, hourly_rate, data in c.fetchall():
+        team_member = {
+            'name': name,
+            'role': role,
+            'skills': skills.split(',') if skills else [],
+            'availability_hours': availability_hours,
+            'hourly_rate': hourly_rate
+        }
+        if data:
+            team_member.update(json.loads(data))
+        team_members[name] = team_member
+    conn.close()
+    return team_members
+
+def save_team_members_to_db():
+    """Saves team members from session state to the database."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM team_members")  # Clear existing data
+
+    for name, member in st.session_state.team_members.items():
+        skills = ','.join(member.get('skills', []))
+        # Extract core fields
+        role = member.get('role', '')
+        availability_hours = member.get('availability_hours', 40.0)
+        hourly_rate = member.get('hourly_rate', 0.0)
+        
+        # Store additional data as JSON
+        core_fields = {'name', 'role', 'skills', 'availability_hours', 'hourly_rate'}
+        additional_data = {k: v for k, v in member.items() if k not in core_fields}
+        data_json = json.dumps(additional_data) if additional_data else None
+        
+        c.execute("""
+            INSERT INTO team_members (name, role, skills, availability_hours, hourly_rate, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (name, role, skills, availability_hours, hourly_rate, data_json))
+
+    conn.commit()
+    conn.close()
+
+def load_schedule_entries_from_db():
+    """Loads schedule entries from the database into session state."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT team_member, project, start_date, end_date, hours_per_day, 
+               phase, status, notes, created_at, updated_at 
+        FROM schedule_entries
+    """)
+    schedule_entries = [
+        {
+            'team_member': team_member,
+            'project': project,
+            'start_date': start_date,
+            'end_date': end_date,
+            'hours_per_day': hours_per_day,
+            'phase': phase,
+            'status': status,
+            'notes': notes,
+            'created_at': created_at,
+            'updated_at': updated_at
+        } for team_member, project, start_date, end_date, hours_per_day, 
+            phase, status, notes, created_at, updated_at in c.fetchall()
+    ]
+    conn.close()
+    return schedule_entries
+
+def save_schedule_entries_to_db():
+    """Saves schedule entries from session state to the database."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM schedule_entries")  # Clear existing data
+
+    for entry in st.session_state.schedule_entries:
+        c.execute("""
+            INSERT INTO schedule_entries (
+                team_member, project, start_date, end_date, hours_per_day,
+                phase, status, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            entry.get('team_member', ''),
+            entry.get('project', ''),
+            entry.get('start_date', ''),
+            entry.get('end_date', ''),
+            entry.get('hours_per_day', 8.0),
+            entry.get('phase', ''),
+            entry.get('status', 'scheduled'),
+            entry.get('notes', ''),
+            entry.get('created_at', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            entry.get('updated_at', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        ))
+
+    conn.commit()
+    conn.close()
+
 # --- DATA LOADING AND SAVING (Corrected Order) ---
 
 def save_data():
     """Saves project and time entry data to the database and backup files."""
     save_projects_to_db()
     save_time_entries_to_db()
+    save_team_members_to_db()
+    save_schedule_entries_to_db()
 
     # Define paths
     home_dir = str(Path.home())
@@ -243,6 +376,8 @@ def load_data():
         # Load from database
         st.session_state.projects = load_projects_from_db()
         st.session_state.time_entries = load_time_entries_from_db()
+        st.session_state.team_members = load_team_members_from_db()
+        st.session_state.schedule_entries = load_schedule_entries_from_db()
 
         # Fallback to files if database is empty (for backward compatibility)
         projects_file = os.path.join(data_dir, 'projects.json')
@@ -259,7 +394,7 @@ def load_data():
             save_time_entries_to_db()  # Save loaded data to DB
 
         # Log the loading operation
-        logging.info(f"Data loaded successfully. Projects: {len(st.session_state.projects)}, Time entries: {len(st.session_state.time_entries)}")
+        logging.info(f"Data loaded successfully. Projects: {len(st.session_state.projects)}, Time entries: {len(st.session_state.time_entries)}, Team members: {len(st.session_state.team_members)}, Schedule entries: {len(st.session_state.schedule_entries)}")
 
     except Exception as e:
         error_msg = f"Error loading data: {str(e)}"
@@ -742,6 +877,10 @@ if 'projects' not in st.session_state:
     st.session_state.projects = {}
 if 'time_entries' not in st.session_state:
     st.session_state.time_entries = []
+if 'team_members' not in st.session_state:
+    st.session_state.team_members = {}
+if 'schedule_entries' not in st.session_state:
+    st.session_state.schedule_entries = []
 if 'current_project' not in st.session_state:
     st.session_state.current_project = None
 if 'theme' not in st.session_state:  # Example for theme switching (optional)
@@ -1226,8 +1365,8 @@ with st.sidebar:
                 st.info("No backups found")
 
 # --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
-tab_dashboard, tab1, tab2, tab3, tab4 = st.tabs([
-    "Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports"
+tab_dashboard, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports", "Team Scheduling"
 ])
 
 # --- DASHBOARD FUNCTION (Content for the Dashboard Tab) ---
@@ -2629,3 +2768,416 @@ with tab4:
 # --- FOOTER ---
 st.markdown("---")
 st.caption("Statutory Audit Budget Calculator & Time Tracker - A tool for audit planning and resource tracking")
+
+def create_team_reports():
+    """Creates the content for the team reports tab."""
+    # ... existing code ...
+
+def manage_team_members():
+    """Creates the interface for managing team members."""
+    st.markdown("### Team Member Management")
+    
+    # Create two columns for the layout
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("#### Add/Edit Team Member")
+        
+        # Form for adding/editing team members
+        with st.form("team_member_form"):
+            name = st.text_input("Name")
+            role = st.selectbox("Role", ["Partner", "Manager", "Senior", "Staff", "Intern", "Specialist", "Other"])
+            
+            # Multi-select for skills
+            all_skills = [
+                "Audit Planning", "Risk Assessment", "Internal Controls", "Substantive Testing",
+                "Financial Statement Analysis", "Tax", "IT Audit", "Fraud Investigation",
+                "Industry Expertise", "Data Analytics", "Project Management", "Client Communication"
+            ]
+            skills = st.multiselect("Skills", all_skills)
+            
+            availability_hours = st.number_input("Weekly Availability (hours)", min_value=0.0, max_value=80.0, value=40.0, step=0.5)
+            hourly_rate = st.number_input("Hourly Rate", min_value=0.0, value=0.0, step=10.0)
+            
+            submitted = st.form_submit_button("Save Team Member")
+            
+            if submitted and name:
+                # Create or update team member
+                st.session_state.team_members[name] = {
+                    'name': name,
+                    'role': role,
+                    'skills': skills,
+                    'availability_hours': availability_hours,
+                    'hourly_rate': hourly_rate
+                }
+                save_team_members_to_db()
+                st.success(f"Team member '{name}' saved successfully!")
+    
+    with col2:
+        st.markdown("#### Team Members")
+        
+        if not st.session_state.team_members:
+            st.info("No team members added yet. Add team members using the form on the left.")
+        else:
+            # Display team members in a table
+            team_members_data = []
+            for name, member in st.session_state.team_members.items():
+                team_members_data.append({
+                    'Name': name,
+                    'Role': member.get('role', ''),
+                    'Skills': ', '.join(member.get('skills', [])),
+                    'Availability': f"{member.get('availability_hours', 40)} hrs/week",
+                    'Rate': f"₹{member.get('hourly_rate', 0)}/hr"
+                })
+            
+            df = pd.DataFrame(team_members_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Delete team member option
+            member_to_delete = st.selectbox("Select team member to delete", [""] + list(st.session_state.team_members.keys()))
+            if st.button("Delete Selected Team Member") and member_to_delete:
+                if member_to_delete in st.session_state.team_members:
+                    del st.session_state.team_members[member_to_delete]
+                    save_team_members_to_db()
+                    st.success(f"Team member '{member_to_delete}' deleted successfully!")
+                    st.experimental_rerun()
+
+def manage_team_scheduling():
+    """Creates the interface for scheduling team members to projects."""
+    st.markdown("### Team Scheduling")
+    
+    # Create tabs for different scheduling views
+    schedule_tab1, schedule_tab2, schedule_tab3 = st.tabs(["Schedule Assignment", "Team Calendar", "Resource Allocation"])
+    
+    # Schedule Assignment Tab
+    with schedule_tab1:
+        st.markdown("#### Assign Team Members to Projects")
+        
+        # Form for creating schedule entries
+        with st.form("schedule_entry_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Get list of team members
+                team_members = list(st.session_state.team_members.keys())
+                if not team_members:
+                    st.warning("No team members available. Please add team members first.")
+                    team_member = ""
+                else:
+                    team_member = st.selectbox("Team Member", [""] + team_members)
+                
+                # Get list of projects
+                projects = list(st.session_state.projects.keys())
+                if not projects:
+                    st.warning("No projects available. Please create projects first.")
+                    project = ""
+                else:
+                    project = st.selectbox("Project", [""] + projects)
+                
+                # Get phases based on selected project
+                phases = ["Planning", "Fieldwork", "Manager Review", "Partner Review"]
+                if project and project in st.session_state.projects:
+                    # You could extract phases from the project if needed
+                    pass
+                
+                phase = st.selectbox("Audit Phase", [""] + phases)
+            
+            with col2:
+                start_date = st.date_input("Start Date", value=date.today())
+                end_date = st.date_input("End Date", value=date.today())
+                
+                if end_date < start_date:
+                    st.error("End date must be after start date")
+                
+                hours_per_day = st.number_input("Hours Per Day", min_value=0.5, max_value=12.0, value=8.0, step=0.5)
+                notes = st.text_area("Notes", height=100)
+            
+            submitted = st.form_submit_button("Create Schedule")
+            
+            if submitted and team_member and project and phase and start_date and end_date and end_date >= start_date:
+                # Create schedule entry
+                schedule_entry = {
+                    'team_member': team_member,
+                    'project': project,
+                    'phase': phase,
+                    'start_date': start_date.strftime("%Y-%m-%d"),
+                    'end_date': end_date.strftime("%Y-%m-%d"),
+                    'hours_per_day': hours_per_day,
+                    'status': 'scheduled',
+                    'notes': notes,
+                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                st.session_state.schedule_entries.append(schedule_entry)
+                save_schedule_entries_to_db()
+                st.success("Schedule created successfully!")
+        
+        # Display existing schedule entries
+        if st.session_state.schedule_entries:
+            st.markdown("#### Current Schedules")
+            
+            # Convert to DataFrame for display
+            schedule_data = []
+            for entry in st.session_state.schedule_entries:
+                schedule_data.append({
+                    'Team Member': entry.get('team_member', ''),
+                    'Project': entry.get('project', ''),
+                    'Phase': entry.get('phase', ''),
+                    'Start Date': entry.get('start_date', ''),
+                    'End Date': entry.get('end_date', ''),
+                    'Hours/Day': entry.get('hours_per_day', 0),
+                    'Status': entry.get('status', '')
+                })
+            
+            df = pd.DataFrame(schedule_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Option to delete schedule entries
+            if st.button("Delete Selected Schedules"):
+                st.warning("Schedule deletion functionality will be implemented here")
+    
+    # Team Calendar View
+    with schedule_tab2:
+        st.markdown("#### Team Calendar")
+        
+        if not st.session_state.schedule_entries:
+            st.info("No schedules created yet. Create schedules in the Schedule Assignment tab.")
+        else:
+            # Create a calendar view using Plotly
+            fig = create_team_calendar()
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Resource Allocation View
+    with schedule_tab3:
+        st.markdown("#### Resource Allocation")
+        
+        if not st.session_state.schedule_entries:
+            st.info("No schedules created yet. Create schedules in the Schedule Assignment tab.")
+        else:
+            # Create resource allocation charts
+            create_resource_allocation_charts()
+
+def create_team_calendar():
+    """Creates a Gantt chart for team scheduling."""
+    # Prepare data for Gantt chart
+    tasks = []
+    colors = {}
+    
+    # Define colors for different team members
+    color_palette = px.colors.qualitative.Plotly
+    
+    for i, member in enumerate(st.session_state.team_members.keys()):
+        colors[member] = color_palette[i % len(color_palette)]
+    
+    # Create tasks for Gantt chart
+    for i, entry in enumerate(st.session_state.schedule_entries):
+        team_member = entry.get('team_member', '')
+        project = entry.get('project', '')
+        phase = entry.get('phase', '')
+        start_date = entry.get('start_date', '')
+        end_date = entry.get('end_date', '')
+        
+        task_name = f"{team_member}: {project} - {phase}"
+        
+        tasks.append({
+            'Task': task_name,
+            'Start': start_date,
+            'Finish': end_date,
+            'Resource': team_member,
+            'Project': project,
+            'Phase': phase
+        })
+    
+    # Create DataFrame
+    df = pd.DataFrame(tasks)
+    
+    if df.empty:
+        # Return empty figure if no data
+        return go.Figure()
+    
+    # Create Gantt chart
+    fig = px.timeline(
+        df, 
+        x_start="Start", 
+        x_end="Finish", 
+        y="Task",
+        color="Resource",
+        hover_data=["Project", "Phase"]
+    )
+    
+    # Update layout
+    fig.update_layout(
+        title="Team Schedule Calendar",
+        xaxis_title="Date",
+        yaxis_title="Assignment",
+        height=600,
+        xaxis=dict(
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=7, label="1w", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=3, label="3m", step="month", stepmode="backward"),
+                    dict(step="all")
+                ])
+            )
+        )
+    )
+    
+    return fig
+
+def create_resource_allocation_charts():
+    """Creates charts for resource allocation analysis."""
+    # Calculate resource allocation metrics
+    
+    # 1. Team member utilization
+    member_hours = {}
+    for member in st.session_state.team_members:
+        member_hours[member] = {
+            'scheduled': 0,
+            'capacity': st.session_state.team_members[member].get('availability_hours', 40) * 4  # 4 weeks per month
+        }
+    
+    # Calculate scheduled hours
+    for entry in st.session_state.schedule_entries:
+        member = entry.get('team_member', '')
+        if member in member_hours:
+            # Calculate days between start and end dates
+            start = datetime.strptime(entry.get('start_date', ''), "%Y-%m-%d")
+            end = datetime.strptime(entry.get('end_date', ''), "%Y-%m-%d")
+            days = (end - start).days + 1  # Include both start and end days
+            
+            # Calculate total hours
+            hours = days * entry.get('hours_per_day', 8)
+            member_hours[member]['scheduled'] += hours
+    
+    # Create utilization chart
+    utilization_data = []
+    for member, hours in member_hours.items():
+        utilization_pct = min(100, (hours['scheduled'] / hours['capacity']) * 100) if hours['capacity'] > 0 else 0
+        utilization_data.append({
+            'Team Member': member,
+            'Utilization (%)': utilization_pct,
+            'Scheduled Hours': hours['scheduled'],
+            'Capacity Hours': hours['capacity']
+        })
+    
+    df_utilization = pd.DataFrame(utilization_data)
+    
+    if not df_utilization.empty:
+        st.markdown("##### Team Utilization")
+        fig = px.bar(
+            df_utilization,
+            x='Team Member',
+            y='Utilization (%)',
+            text='Utilization (%)',
+            color='Utilization (%)',
+            color_continuous_scale=px.colors.sequential.Viridis,
+            labels={'Utilization (%)': 'Utilization (%)'},
+            hover_data=['Scheduled Hours', 'Capacity Hours']
+        )
+        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+        fig.update_layout(height=400, uniformtext_minsize=8, uniformtext_mode='hide')
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # 2. Project allocation
+    project_hours = {}
+    for entry in st.session_state.schedule_entries:
+        project = entry.get('project', '')
+        phase = entry.get('phase', '')
+        
+        if project not in project_hours:
+            project_hours[project] = {}
+        
+        if phase not in project_hours[project]:
+            project_hours[project][phase] = 0
+        
+        # Calculate days and hours
+        start = datetime.strptime(entry.get('start_date', ''), "%Y-%m-%d")
+        end = datetime.strptime(entry.get('end_date', ''), "%Y-%m-%d")
+        days = (end - start).days + 1
+        hours = days * entry.get('hours_per_day', 8)
+        
+        project_hours[project][phase] += hours
+    
+    # Create project allocation chart
+    if project_hours:
+        st.markdown("##### Project Phase Allocation")
+        
+        # Prepare data for stacked bar chart
+        phases = set()
+        for project_data in project_hours.values():
+            phases.update(project_data.keys())
+        
+        data = []
+        for project, phase_data in project_hours.items():
+            for phase in phases:
+                data.append({
+                    'Project': project,
+                    'Phase': phase,
+                    'Hours': phase_data.get(phase, 0)
+                })
+        
+        df_project = pd.DataFrame(data)
+        
+        if not df_project.empty:
+            fig = px.bar(
+                df_project,
+                x='Project',
+                y='Hours',
+                color='Phase',
+                barmode='stack',
+                labels={'Hours': 'Allocated Hours'},
+                hover_data=['Hours']
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+            
+    # 3. Skill coverage analysis
+    if st.session_state.team_members:
+        st.markdown("##### Team Skill Coverage")
+        
+        # Collect all skills across team members
+        all_skills = set()
+        for member_data in st.session_state.team_members.values():
+            all_skills.update(member_data.get('skills', []))
+        
+        # Count members with each skill
+        skill_coverage = {skill: 0 for skill in all_skills}
+        for member_data in st.session_state.team_members.values():
+            for skill in member_data.get('skills', []):
+                if skill in skill_coverage:
+                    skill_coverage[skill] += 1
+        
+        # Create skill coverage chart
+        if skill_coverage:
+            skill_data = [{'Skill': skill, 'Count': count} for skill, count in skill_coverage.items()]
+            df_skills = pd.DataFrame(skill_data)
+            
+            if not df_skills.empty:
+                # Sort by count descending
+                df_skills = df_skills.sort_values('Count', ascending=False)
+                
+                fig = px.bar(
+                    df_skills,
+                    x='Skill',
+                    y='Count',
+                    text='Count',
+                    color='Count',
+                    color_continuous_scale=px.colors.sequential.Viridis,
+                    labels={'Count': 'Team Members with Skill'}
+                )
+                fig.update_traces(textposition='outside')
+                fig.update_layout(height=400, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+
+# Team Scheduling Tab
+with tab5:
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        st.markdown("### Team Management")
+        manage_team_members()
+    
+    with col2:
+        manage_team_scheduling()
