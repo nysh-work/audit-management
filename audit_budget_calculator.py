@@ -1650,6 +1650,9 @@ def get_project_list():
 
 # Calculate budget based on inputs
 def calculate_budget(company_name, turnover, is_listed, industry_sector, controls_risk, inherent_risk, complexity, info_delay_risk):
+    # Declare global variables
+    global industry_sectors, detailed_time_estimates, default_time_estimate
+    
     # Determine audit category based on turnover
     if turnover <= 50:
         audit_category = "micro"
@@ -1858,6 +1861,8 @@ def calculate_budget(company_name, turnover, is_listed, industry_sector, control
 
 def create_budget_calculator():
     """Creates the content for the budget calculator tab."""
+    
+    global industry_sectors, detailed_time_estimates, default_time_estimate
     
     st.markdown("### Statutory Audit Budget Calculator")
     st.markdown("Generate detailed audit budgets based on client characteristics and risk factors.")
