@@ -1856,330 +1856,6 @@ def calculate_budget(company_name, turnover, is_listed, industry_sector, control
     
     return result
 
-# --- TAB CONTENT (Using 'with' blocks for each tab) ---
-
-# Main content area
-if 'show_materiality_calculator' in st.session_state and st.session_state.show_materiality_calculator:
-    create_materiality_calculator_dialog()
-    if st.button("Return to Main Application"):
-        st.session_state.show_materiality_calculator = False
-        st.rerun()
-else:
-    # Dashboard Tab
-    with tab_dashboard:
-        create_dashboard()
-
-    # Budget Calculator Tab
-    with tab1:
-        create_budget_calculator()
-
-    # Time Tracking Tab
-    with tab2:
-        create_time_tracking()
-
-    # Project Reports Tab
-    with tab3:
-        create_project_reports()
-
-    # Team Reports Tab
-    with tab4:
-        create_team_reports()
-
-    # Team Scheduling Tab
-    with tab5:
-        col1, col2 = st.columns([1, 3])
-        
-        with col1:
-            st.markdown("### Team Management")
-            manage_team_members()
-        
-        with col2:
-            manage_team_scheduling()
-
-def create_team_reports():
-    """Creates the content for the team reports tab."""
-    st.markdown("### Team Reports")
-    st.markdown("Analysis of team member utilization and performance across projects.")
-
-def manage_team_scheduling():
-    """Manages team scheduling with general availability and specific phase allocation."""
-    st.markdown("### Team Scheduling")
-    
-    # Get projects and team members
-    projects = get_project_list()
-    team_members = list(st.session_state.team_members.keys())
-    
-    if not projects or not team_members:
-        st.warning("Please add projects and team members first.")
-        return
-    
-    # Define audit phases
-    audit_phases = [
-        "Planning", 
-        "Risk Assessment",
-        "Internal Controls Testing",
-        "Substantive Testing",
-        "Completion",
-        "Reporting"
-    ]
-    
-    # Create a new schedule entry
-    st.markdown("#### Create New Schedule Entry")
-    with st.form("schedule_entry_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            selected_team_member = st.selectbox("Team Member", team_members)
-            selected_project = st.selectbox("Project", projects)
-            selected_phase = st.selectbox("Audit Phase", audit_phases)
-        
-        with col2:
-            start_date = st.date_input("Start Date", value=datetime.now().date())
-            end_date = st.date_input("End Date", value=(datetime.now() + timedelta(days=7)).date())
-            hours_per_day = st.number_input("Hours Per Day", min_value=0.5, max_value=12.0, value=8.0, step=0.5)
-        
-        notes = st.text_area("Notes", height=100)
-        submit_button = st.form_submit_button("Add Schedule Entry")
-    
-    if submit_button:
-        # Calculate total days and hours
-        days = (end_date - start_date).days + 1
-        total_hours = days * hours_per_day
-        
-        # Get team member's weekly availability
-        member_availability = st.session_state.team_members[selected_team_member]['availability_hours']
-        
-        # Calculate current allocation for this team member in the date range
-        current_allocation = 0
-        for entry in st.session_state.schedule_entries:
-            if entry['team_member'] == selected_team_member:
-                entry_start = datetime.strptime(entry['start_date'], '%Y-%m-%d').date()
-                entry_end = datetime.strptime(entry['end_date'], '%Y-%m-%d').date()
-                
-                # Check for overlap
-                if (entry_start <= end_date and entry_end >= start_date):
-                    # Calculate overlapping days
-                    overlap_start = max(start_date, entry_start)
-                    overlap_end = min(end_date, entry_end)
-                    overlap_days = (overlap_end - overlap_start).days + 1
-                    
-                    # Add to current allocation
-                    current_allocation += overlap_days * entry['hours_per_day']
-        
-        # Check if new allocation exceeds availability
-        weeks_span = max(1, days / 7)
-        total_available_hours = member_availability * weeks_span
-        
-        if current_allocation + total_hours > total_available_hours:
-            st.error(f"This allocation exceeds {selected_team_member}'s availability. " +
-                    f"Available: {total_available_hours} hours, " +
-                    f"Currently allocated: {current_allocation} hours, " +
-                    f"Attempting to allocate: {total_hours} hours.")
-        else:
-            # Add new schedule entry
-            new_entry = {
-                'team_member': selected_team_member,
-                'project': selected_project,
-                'start_date': start_date.strftime('%Y-%m-%d'),
-                'end_date': end_date.strftime('%Y-%m-%d'),
-                'hours_per_day': hours_per_day,
-                'phase': selected_phase,
-                'status': 'scheduled',
-                'notes': notes,
-                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            st.session_state.schedule_entries.append(new_entry)
-            save_schedule_entries_to_db()
-            st.success(f"Schedule entry added for {selected_team_member} on project {selected_project}.")
-    
-    # Display current schedule
-    st.markdown("#### Current Schedule")
-    
-    # Filter options
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        filter_team_member = st.selectbox("Filter by Team Member", ["All"] + team_members)
-    with filter_col2:
-        filter_project = st.selectbox("Filter by Project", ["All"] + projects)
-    
-    # Prepare data for display
-    if st.session_state.schedule_entries:
-        filtered_entries = st.session_state.schedule_entries.copy()
-        
-        # Apply filters
-        if filter_team_member != "All":
-            filtered_entries = [e for e in filtered_entries if e['team_member'] == filter_team_member]
-        if filter_project != "All":
-            filtered_entries = [e for e in filtered_entries if e['project'] == filter_project]
-        
-        if filtered_entries:
-            # Convert to DataFrame for display
-            df = pd.DataFrame(filtered_entries)
-            
-            # Format dates
-            df['start_date'] = pd.to_datetime(df['start_date']).dt.strftime('%Y-%m-%d')
-            df['end_date'] = pd.to_datetime(df['end_date']).dt.strftime('%Y-%m-%d')
-            
-            # Calculate total days and hours
-            df['days'] = [(datetime.strptime(end, '%Y-%m-%d') - datetime.strptime(start, '%Y-%m-%d')).days + 1 
-                         for start, end in zip(df['start_date'], df['end_date'])]
-            df['total_hours'] = df['days'] * df['hours_per_day']
-            
-            # Select columns to display
-            display_df = df[['team_member', 'project', 'phase', 'start_date', 'end_date', 
-                            'hours_per_day', 'total_hours', 'status']]
-            
-            st.dataframe(display_df)
-            
-            # Summary statistics
-            st.markdown("#### Allocation Summary")
-            summary_data = []
-            
-            for member in team_members:
-                member_entries = [e for e in filtered_entries if e['team_member'] == member]
-                
-                if member_entries:
-                    # Calculate total allocated hours
-                    total_allocated = sum(
-                        (datetime.strptime(e['end_date'], '%Y-%m-%d') - 
-                         datetime.strptime(e['start_date'], '%Y-%m-%d')).days + 1 
-                        * e['hours_per_day'] for e in member_entries
-                    )
-                    
-                    # Get weekly availability
-                    weekly_availability = st.session_state.team_members[member]['availability_hours']
-                    
-                    # Calculate allocation by phase
-                    phase_allocation = {}
-                    for phase in audit_phases:
-                        phase_entries = [e for e in member_entries if e['phase'] == phase]
-                        phase_hours = sum(
-                            (datetime.strptime(e['end_date'], '%Y-%m-%d') - 
-                             datetime.strptime(e['start_date'], '%Y-%m-%d')).days + 1 
-                            * e['hours_per_day'] for e in phase_entries
-                        )
-                        phase_allocation[phase] = phase_hours
-                    
-                    # Add to summary data
-                    summary_data.append({
-                        'Team Member': member,
-                        'Weekly Availability': weekly_availability,
-                        'Total Allocated Hours': total_allocated,
-                        **{f"{phase} Hours": phase_allocation.get(phase, 0) for phase in audit_phases}
-                    })
-            
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                st.dataframe(summary_df)
-            
-            # Option to delete entries
-            if st.button("Delete Selected Entries"):
-                st.warning("This feature would allow deleting selected entries.")
-        else:
-            st.info("No schedule entries match the selected filters.")
-    else:
-        st.info("No schedule entries found. Create your first entry above.")
-
-def manage_team_members():
-    """Manages team members including their general availability."""
-    st.markdown("### Team Members")
-    
-    # Add new team member
-    with st.expander("Add New Team Member", expanded=False):
-        with st.form("new_team_member"):
-            name = st.text_input("Name")
-            role = st.selectbox("Role", ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"])
-            skills = st.multiselect("Skills", ["Audit", "Tax", "Advisory", "IT", "Forensic", "Valuation"])
-            
-            # Weekly availability
-            availability_hours = st.number_input(
-                "Weekly Availability (hours)", 
-                min_value=0.0, 
-                max_value=80.0, 
-                value=40.0, 
-                step=0.5,
-                help="Total hours available per week across all projects and phases"
-            )
-            
-            hourly_rate = st.number_input("Hourly Rate", min_value=0.0, value=100.0, step=10.0)
-            
-            submitted = st.form_submit_button("Add Team Member")
-            
-            if submitted and name:
-                if name in st.session_state.team_members:
-                    st.error(f"Team member '{name}' already exists.")
-                else:
-                    st.session_state.team_members[name] = {
-                        'name': name,
-                        'role': role,
-                        'skills': skills,
-                        'availability_hours': availability_hours,
-                        'hourly_rate': hourly_rate
-                    }
-                    save_team_members_to_db()
-                    st.success(f"Team member '{name}' added successfully.")
-    
-    # Display and edit team members
-    if st.session_state.team_members:
-        st.markdown("#### Current Team Members")
-        
-        # Convert to DataFrame for display
-        team_df = pd.DataFrame([
-            {
-                'Name': name,
-                'Role': member['role'],
-                'Skills': ', '.join(member['skills']),
-                'Weekly Availability (hours)': member['availability_hours'],
-                'Hourly Rate': member['hourly_rate']
-            }
-            for name, member in st.session_state.team_members.items()
-        ])
-        
-        st.dataframe(team_df)
-        
-        # Edit team member
-        with st.expander("Edit Team Member", expanded=False):
-            selected_member = st.selectbox("Select Team Member to Edit", list(st.session_state.team_members.keys()))
-            
-            if selected_member:
-                member = st.session_state.team_members[selected_member]
-                
-                with st.form("edit_team_member"):
-                    role = st.selectbox("Role", ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"], 
-                                       index=["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"].index(member['role']))
-                    skills = st.multiselect("Skills", ["Audit", "Tax", "Advisory", "IT", "Forensic", "Valuation"], 
-                                           default=member['skills'])
-                    
-                    # Weekly availability
-                    availability_hours = st.number_input(
-                        "Weekly Availability (hours)", 
-                        min_value=0.0, 
-                        max_value=80.0, 
-                        value=member['availability_hours'], 
-                        step=0.5,
-                        help="Total hours available per week across all projects and phases"
-                    )
-                    
-                    hourly_rate = st.number_input("Hourly Rate", min_value=0.0, value=member['hourly_rate'], step=10.0)
-                    
-                    update_submitted = st.form_submit_button("Update Team Member")
-                    
-                    if update_submitted:
-                        st.session_state.team_members[selected_member].update({
-                            'role': role,
-                            'skills': skills,
-                            'availability_hours': availability_hours,
-                            'hourly_rate': hourly_rate
-                        })
-                        save_team_members_to_db()
-                        st.success(f"Team member '{selected_member}' updated successfully.")
-    else:
-        st.info("No team members found. Add your first team member above.")
-
-# The materiality calculator function is now imported from materiality_calculator.py
-
 def create_budget_calculator():
     """Creates the content for the budget calculator tab."""
     
@@ -2630,3 +2306,327 @@ def create_project_reports():
     
     if st.button("Generate PDF Report", key="generate_pdf_btn"):
         st.info("PDF report generation functionality will be implemented in a future update.")
+        
+# --- TAB CONTENT (Using 'with' blocks for each tab) ---
+
+# Main content area
+if 'show_materiality_calculator' in st.session_state and st.session_state.show_materiality_calculator:
+    create_materiality_calculator_dialog()
+    if st.button("Return to Main Application"):
+        st.session_state.show_materiality_calculator = False
+        st.rerun()
+else:
+    # Dashboard Tab
+    with tab_dashboard:
+        create_dashboard()
+
+    # Budget Calculator Tab
+    with tab1:
+        create_budget_calculator()
+
+    # Time Tracking Tab
+    with tab2:
+        create_time_tracking()
+
+    # Project Reports Tab
+    with tab3:
+        create_project_reports()
+
+    # Team Reports Tab
+    with tab4:
+        create_team_reports()
+
+    # Team Scheduling Tab
+    with tab5:
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            st.markdown("### Team Management")
+            manage_team_members()
+        
+        with col2:
+            manage_team_scheduling()
+
+def create_team_reports():
+    """Creates the content for the team reports tab."""
+    st.markdown("### Team Reports")
+    st.markdown("Analysis of team member utilization and performance across projects.")
+
+def manage_team_scheduling():
+    """Manages team scheduling with general availability and specific phase allocation."""
+    st.markdown("### Team Scheduling")
+    
+    # Get projects and team members
+    projects = get_project_list()
+    team_members = list(st.session_state.team_members.keys())
+    
+    if not projects or not team_members:
+        st.warning("Please add projects and team members first.")
+        return
+    
+    # Define audit phases
+    audit_phases = [
+        "Planning", 
+        "Risk Assessment",
+        "Internal Controls Testing",
+        "Substantive Testing",
+        "Completion",
+        "Reporting"
+    ]
+    
+    # Create a new schedule entry
+    st.markdown("#### Create New Schedule Entry")
+    with st.form("schedule_entry_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_team_member = st.selectbox("Team Member", team_members)
+            selected_project = st.selectbox("Project", projects)
+            selected_phase = st.selectbox("Audit Phase", audit_phases)
+        
+        with col2:
+            start_date = st.date_input("Start Date", value=datetime.now().date())
+            end_date = st.date_input("End Date", value=(datetime.now() + timedelta(days=7)).date())
+            hours_per_day = st.number_input("Hours Per Day", min_value=0.5, max_value=12.0, value=8.0, step=0.5)
+        
+        notes = st.text_area("Notes", height=100)
+        submit_button = st.form_submit_button("Add Schedule Entry")
+    
+    if submit_button:
+        # Calculate total days and hours
+        days = (end_date - start_date).days + 1
+        total_hours = days * hours_per_day
+        
+        # Get team member's weekly availability
+        member_availability = st.session_state.team_members[selected_team_member]['availability_hours']
+        
+        # Calculate current allocation for this team member in the date range
+        current_allocation = 0
+        for entry in st.session_state.schedule_entries:
+            if entry['team_member'] == selected_team_member:
+                entry_start = datetime.strptime(entry['start_date'], '%Y-%m-%d').date()
+                entry_end = datetime.strptime(entry['end_date'], '%Y-%m-%d').date()
+                
+                # Check for overlap
+                if (entry_start <= end_date and entry_end >= start_date):
+                    # Calculate overlapping days
+                    overlap_start = max(start_date, entry_start)
+                    overlap_end = min(end_date, entry_end)
+                    overlap_days = (overlap_end - overlap_start).days + 1
+                    
+                    # Add to current allocation
+                    current_allocation += overlap_days * entry['hours_per_day']
+        
+        # Check if new allocation exceeds availability
+        weeks_span = max(1, days / 7)
+        total_available_hours = member_availability * weeks_span
+        
+        if current_allocation + total_hours > total_available_hours:
+            st.error(f"This allocation exceeds {selected_team_member}'s availability. " +
+                    f"Available: {total_available_hours} hours, " +
+                    f"Currently allocated: {current_allocation} hours, " +
+                    f"Attempting to allocate: {total_hours} hours.")
+        else:
+            # Add new schedule entry
+            new_entry = {
+                'team_member': selected_team_member,
+                'project': selected_project,
+                'start_date': start_date.strftime('%Y-%m-%d'),
+                'end_date': end_date.strftime('%Y-%m-%d'),
+                'hours_per_day': hours_per_day,
+                'phase': selected_phase,
+                'status': 'scheduled',
+                'notes': notes,
+                'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            st.session_state.schedule_entries.append(new_entry)
+            save_schedule_entries_to_db()
+            st.success(f"Schedule entry added for {selected_team_member} on project {selected_project}.")
+    
+    # Display current schedule
+    st.markdown("#### Current Schedule")
+    
+    # Filter options
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        filter_team_member = st.selectbox("Filter by Team Member", ["All"] + team_members)
+    with filter_col2:
+        filter_project = st.selectbox("Filter by Project", ["All"] + projects)
+    
+    # Prepare data for display
+    if st.session_state.schedule_entries:
+        filtered_entries = st.session_state.schedule_entries.copy()
+        
+        # Apply filters
+        if filter_team_member != "All":
+            filtered_entries = [e for e in filtered_entries if e['team_member'] == filter_team_member]
+        if filter_project != "All":
+            filtered_entries = [e for e in filtered_entries if e['project'] == filter_project]
+        
+        if filtered_entries:
+            # Convert to DataFrame for display
+            df = pd.DataFrame(filtered_entries)
+            
+            # Format dates
+            df['start_date'] = pd.to_datetime(df['start_date']).dt.strftime('%Y-%m-%d')
+            df['end_date'] = pd.to_datetime(df['end_date']).dt.strftime('%Y-%m-%d')
+            
+            # Calculate total days and hours
+            df['days'] = [(datetime.strptime(end, '%Y-%m-%d') - datetime.strptime(start, '%Y-%m-%d')).days + 1 
+                         for start, end in zip(df['start_date'], df['end_date'])]
+            df['total_hours'] = df['days'] * df['hours_per_day']
+            
+            # Select columns to display
+            display_df = df[['team_member', 'project', 'phase', 'start_date', 'end_date', 
+                            'hours_per_day', 'total_hours', 'status']]
+            
+            st.dataframe(display_df)
+            
+            # Summary statistics
+            st.markdown("#### Allocation Summary")
+            summary_data = []
+            
+            for member in team_members:
+                member_entries = [e for e in filtered_entries if e['team_member'] == member]
+                
+                if member_entries:
+                    # Calculate total allocated hours
+                    total_allocated = sum(
+                        (datetime.strptime(e['end_date'], '%Y-%m-%d') - 
+                         datetime.strptime(e['start_date'], '%Y-%m-%d')).days + 1 
+                        * e['hours_per_day'] for e in member_entries
+                    )
+                    
+                    # Get weekly availability
+                    weekly_availability = st.session_state.team_members[member]['availability_hours']
+                    
+                    # Calculate allocation by phase
+                    phase_allocation = {}
+                    for phase in audit_phases:
+                        phase_entries = [e for e in member_entries if e['phase'] == phase]
+                        phase_hours = sum(
+                            (datetime.strptime(e['end_date'], '%Y-%m-%d') - 
+                             datetime.strptime(e['start_date'], '%Y-%m-%d')).days + 1 
+                            * e['hours_per_day'] for e in phase_entries
+                        )
+                        phase_allocation[phase] = phase_hours
+                    
+                    # Add to summary data
+                    summary_data.append({
+                        'Team Member': member,
+                        'Weekly Availability': weekly_availability,
+                        'Total Allocated Hours': total_allocated,
+                        **{f"{phase} Hours": phase_allocation.get(phase, 0) for phase in audit_phases}
+                    })
+            
+            if summary_data:
+                summary_df = pd.DataFrame(summary_data)
+                st.dataframe(summary_df)
+            
+            # Option to delete entries
+            if st.button("Delete Selected Entries"):
+                st.warning("This feature would allow deleting selected entries.")
+        else:
+            st.info("No schedule entries match the selected filters.")
+    else:
+        st.info("No schedule entries found. Create your first entry above.")
+
+def manage_team_members():
+    """Manages team members including their general availability."""
+    st.markdown("### Team Members")
+    
+    # Add new team member
+    with st.expander("Add New Team Member", expanded=False):
+        with st.form("new_team_member"):
+            name = st.text_input("Name")
+            role = st.selectbox("Role", ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"])
+            skills = st.multiselect("Skills", ["Audit", "Tax", "Advisory", "IT", "Forensic", "Valuation"])
+            
+            # Weekly availability
+            availability_hours = st.number_input(
+                "Weekly Availability (hours)", 
+                min_value=0.0, 
+                max_value=80.0, 
+                value=40.0, 
+                step=0.5,
+                help="Total hours available per week across all projects and phases"
+            )
+            
+            hourly_rate = st.number_input("Hourly Rate", min_value=0.0, value=100.0, step=10.0)
+            
+            submitted = st.form_submit_button("Add Team Member")
+            
+            if submitted and name:
+                if name in st.session_state.team_members:
+                    st.error(f"Team member '{name}' already exists.")
+                else:
+                    st.session_state.team_members[name] = {
+                        'name': name,
+                        'role': role,
+                        'skills': skills,
+                        'availability_hours': availability_hours,
+                        'hourly_rate': hourly_rate
+                    }
+                    save_team_members_to_db()
+                    st.success(f"Team member '{name}' added successfully.")
+    
+    # Display and edit team members
+    if st.session_state.team_members:
+        st.markdown("#### Current Team Members")
+        
+        # Convert to DataFrame for display
+        team_df = pd.DataFrame([
+            {
+                'Name': name,
+                'Role': member['role'],
+                'Skills': ', '.join(member['skills']),
+                'Weekly Availability (hours)': member['availability_hours'],
+                'Hourly Rate': member['hourly_rate']
+            }
+            for name, member in st.session_state.team_members.items()
+        ])
+        
+        st.dataframe(team_df)
+        
+        # Edit team member
+        with st.expander("Edit Team Member", expanded=False):
+            selected_member = st.selectbox("Select Team Member to Edit", list(st.session_state.team_members.keys()))
+            
+            if selected_member:
+                member = st.session_state.team_members[selected_member]
+                
+                with st.form("edit_team_member"):
+                    role = st.selectbox("Role", ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"], 
+                                       index=["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article"].index(member['role']))
+                    skills = st.multiselect("Skills", ["Audit", "Tax", "Advisory", "IT", "Forensic", "Valuation"], 
+                                           default=member['skills'])
+                    
+                    # Weekly availability
+                    availability_hours = st.number_input(
+                        "Weekly Availability (hours)", 
+                        min_value=0.0, 
+                        max_value=80.0, 
+                        value=member['availability_hours'], 
+                        step=0.5,
+                        help="Total hours available per week across all projects and phases"
+                    )
+                    
+                    hourly_rate = st.number_input("Hourly Rate", min_value=0.0, value=member['hourly_rate'], step=10.0)
+                    
+                    update_submitted = st.form_submit_button("Update Team Member")
+                    
+                    if update_submitted:
+                        st.session_state.team_members[selected_member].update({
+                            'role': role,
+                            'skills': skills,
+                            'availability_hours': availability_hours,
+                            'hourly_rate': hourly_rate
+                        })
+                        save_team_members_to_db()
+                        st.success(f"Team member '{selected_member}' updated successfully.")
+    else:
+        st.info("No team members found. Add your first team member above.")
+
+# The materiality calculator function is now imported from materiality_calculator.py
