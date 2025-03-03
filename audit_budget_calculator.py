@@ -11,8 +11,8 @@ import json
 import shutil
 import os
 import glob
-import ReportLab
-import WeasyPrint
+import reportlab
+import weasyprint
     # Import the materiality calculator module
 from materiality_calculator import create_materiality_calculator_dialog
 
