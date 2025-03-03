@@ -49,6 +49,71 @@ if is_cloud:
 else:
     cloud_storage = None
 
+# Define industry sectors and time estimates
+industry_sectors = {
+    "MFG": {"name": "Manufacturing", "risk_factor": 1.0},
+    "RET": {"name": "Retail", "risk_factor": 0.9},
+    "TECH": {"name": "Technology", "risk_factor": 1.2},
+    "FIN": {"name": "Financial Services", "risk_factor": 1.3},
+    "HLTH": {"name": "Healthcare", "risk_factor": 1.1},
+    "CONS": {"name": "Construction", "risk_factor": 1.0},
+    "REAL": {"name": "Real Estate", "risk_factor": 0.9},
+    "HOSP": {"name": "Hospitality", "risk_factor": 0.8},
+    "TRAN": {"name": "Transportation", "risk_factor": 1.0},
+    "ENER": {"name": "Energy", "risk_factor": 1.2},
+    "TELE": {"name": "Telecommunications", "risk_factor": 1.1},
+    "AGRI": {"name": "Agriculture", "risk_factor": 0.9},
+    "PHAR": {"name": "Pharmaceuticals", "risk_factor": 1.3},
+    "MEDIA": {"name": "Media & Entertainment", "risk_factor": 1.0},
+    "EDU": {"name": "Education", "risk_factor": 0.8},
+    "NPO": {"name": "Non-Profit", "risk_factor": 0.7}
+}
+
+# Define detailed time estimates by size and sector
+detailed_time_estimates = {
+    # Small Manufacturing
+    "SMFG": {
+        "planning": 40,
+        "fieldwork": 120,
+        "managerReview": 24,
+        "partnerReview": 16,
+        "total": 200
+    },
+    # Medium Manufacturing
+    "MMFG": {
+        "planning": 60,
+        "fieldwork": 180,
+        "managerReview": 36,
+        "partnerReview": 24,
+        "total": 300
+    },
+    # Large Manufacturing
+    "LMFG": {
+        "planning": 80,
+        "fieldwork": 240,
+        "managerReview": 48,
+        "partnerReview": 32,
+        "total": 400
+    },
+    # Very Large Manufacturing
+    "VLMFG": {
+        "planning": 120,
+        "fieldwork": 360,
+        "managerReview": 72,
+        "partnerReview": 48,
+        "total": 600
+    }
+}
+
+# Default time estimate (fallback)
+default_time_estimate = {
+    "planning": 40,
+    "fieldwork": 120,
+    "managerReview": 24,
+    "partnerReview": 16,
+    "total": 200
+}
+
 # Define the database location (can be changed if needed)
 def get_db_path():
     """Returns the path to the database file."""
