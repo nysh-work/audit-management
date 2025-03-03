@@ -4,12 +4,66 @@ import numpy as np
 import io
 import base64
 import json
+import os
+import socket
+import platform
 from datetime import datetime
+
+# Function to check GCP deployment status
+def check_gcp_deployment_status():
+    """Check if the application is running on Google Cloud Platform and return deployment details."""
+    is_gcp = False
+    deployment_info = {}
+    
+    # Check for GCP environment variables
+    gcp_env_vars = [
+        'GOOGLE_CLOUD_PROJECT', 
+        'K_SERVICE', 
+        'K_REVISION', 
+        'K_CONFIGURATION',
+        'CLOUD_RUN_SERVICE'
+    ]
+    
+    for var in gcp_env_vars:
+        if os.environ.get(var):
+            is_gcp = True
+            deployment_info[var] = os.environ.get(var)
+    
+    # Get additional system information
+    deployment_info['hostname'] = socket.gethostname()
+    deployment_info['platform'] = platform.platform()
+    deployment_info['python_version'] = platform.python_version()
+    deployment_info['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    return is_gcp, deployment_info
 
 def create_materiality_calculator_dialog():
     """Creates a dialog for the materiality calculator."""
     st.markdown("## Materiality Calculator")
-    st.markdown("### Based on ISA 320 'Materiality in Planning and Performing an Audit'")
+    st.markdown("### Based on SA 320 'Materiality in Planning and Performing an Audit'")
+    
+    # Add deployment status in sidebar
+    with st.sidebar:
+        with st.expander("Deployment Status", expanded=False):
+            is_gcp, deployment_info = check_gcp_deployment_status()
+            
+            if is_gcp:
+                st.success("✅ Running on Google Cloud Platform")
+                
+                # Display GCP-specific information
+                st.markdown("### GCP Deployment Details")
+                for key, value in deployment_info.items():
+                    if key in ['GOOGLE_CLOUD_PROJECT', 'K_SERVICE', 'K_REVISION', 'K_CONFIGURATION', 'CLOUD_RUN_SERVICE']:
+                        st.markdown(f"**{key}:** {value}")
+            else:
+                st.warning("⚠️ Running in local/development environment")
+            
+            # Display general system information
+            st.markdown("### System Information")
+            st.markdown(f"**Hostname:** {deployment_info['hostname']}")
+            st.markdown(f"**Platform:** {deployment_info['platform']}")
+            st.markdown(f"**Python Version:** {deployment_info['python_version']}")
+            st.markdown(f"**Timestamp:** {deployment_info['timestamp']}")
     
     # Create tabs for the different steps
     mat_tab1, mat_tab2, mat_tab3, mat_tab4, mat_tab5 = st.tabs([
@@ -17,7 +71,7 @@ def create_materiality_calculator_dialog():
         "Step 2: Benchmark Selection", 
         "Step 3: Percentage Determination",
         "Step 4: Documentation",
-        "Misstatement Tracker (ISA 450)"
+        "Misstatement Tracker (SA 450)"
     ])
     
     # Initialize session state for materiality calculation if not exists
@@ -49,6 +103,8 @@ def create_materiality_calculator_dialog():
         st.session_state.materiality_risk_factors = {}
     if 'materiality_justification' not in st.session_state:
         st.session_state.materiality_justification = ""
+    if 'risk_assessment_data' not in st.session_state:
+        st.session_state.risk_assessment_data = {}
     
     # Initialize misstatement tracker data if not exists
     if 'known_errors' not in st.session_state:
@@ -66,53 +122,285 @@ def create_materiality_calculator_dialog():
         - Lower risk → Higher materiality
         """)
         
-        # Risk level selection
-        risk_level = st.radio(
-            "Select the overall risk level for this engagement:",
-            ["Low", "Medium", "High"],
-            index=["Low", "Medium", "High"].index(st.session_state.materiality_risk_level)
-        )
+        # Entity information
+        st.markdown("#### Entity Information")
+        col1, col2 = st.columns(2)
         
-        # Risk factors assessment
-        st.markdown("#### Risk Assessment Factors")
-        st.markdown("Select all factors that apply to this engagement:")
+        with col1:
+            entity_name = st.text_input("Name of Entity", key="entity_name")
+            financial_year = st.text_input("Financial Year", key="financial_year")
+            materiality_stage = st.selectbox("Materiality Stage", ["Planning", "Execution", "Completion"], key="materiality_stage")
         
-        risk_factors = {
-            "New Engagement": st.checkbox("New Engagement", key="rf_new_engagement"),
-            "Startup Entity": st.checkbox("Startup Entity", key="rf_startup"),
-            "Concerns about integrity of management": st.checkbox("Concerns about integrity of management", key="rf_integrity"),
-            "Concerns about operating effectiveness of controls": st.checkbox("Concerns about operating effectiveness of controls", key="rf_controls"),
-            "Ongoing investigations": st.checkbox("Ongoing investigations", key="rf_investigations"),
-            "Negative publicity": st.checkbox("Negative publicity", key="rf_publicity"),
-            "Complexity in operations": st.checkbox("Complexity in operations", key="rf_complexity"),
-            "Going-concern and liquidity issues": st.checkbox("Going-concern and liquidity issues", key="rf_liquidity"),
-            "Operating losses": st.checkbox("Operating losses", key="rf_losses"),
-            "Prior history of fraud or error": st.checkbox("Prior history of fraud or error", key="rf_fraud"),
-            "Significant transactions with related parties": st.checkbox("Significant transactions with related parties", key="rf_related_parties"),
-            "Changes in key personnel": st.checkbox("Changes in key personnel", key="rf_personnel"),
-            "Weaknesses in internal control": st.checkbox("Weaknesses in internal control", key="rf_internal_control"),
-            "Previous year's audit report qualified": st.checkbox("Previous year's audit report qualified", key="rf_qualified"),
-            "Changes in accounting policies": st.checkbox("Changes in accounting policies", key="rf_accounting_policies")
+        with col2:
+            engagement_type = st.selectbox("Type of Engagement", ["Statutory Audit", "Limited Review", "Tax Audit", "Internal Audit"], key="engagement_type")
+            prepared_by = st.text_input("Prepared By", key="prepared_by")
+            reviewed_by = st.text_input("Reviewed By", key="reviewed_by")
+        
+        # Display entity information in a table format
+        if entity_name or financial_year or materiality_stage or engagement_type:
+            entity_data = {
+                "Parameter": ["Name of Entity", "Financial Year", "Materiality Stage", "Type of Engagement", "Prepared By", "Reviewed By", "Date"],
+                "Value": [
+                    entity_name, 
+                    financial_year, 
+                    materiality_stage, 
+                    engagement_type, 
+                    prepared_by, 
+                    reviewed_by, 
+                    datetime.now().strftime("%Y-%m-%d")
+                ]
+            }
+            entity_df = pd.DataFrame(entity_data)
+            st.table(entity_df)
+        
+        # Comprehensive Risk Assessment Matrix
+        st.markdown("#### Risk Assessment Matrix")
+        
+        # Define risk factors with descriptions
+        risk_factors = [
+            {"id": 1, "factor": "New Engagement", "description": "First year audit engagement"},
+            {"id": 2, "factor": "Startup Entity", "description": "Entity in early stages of operation"},
+            {"id": 3, "factor": "Significant concerns identified at client acceptance/continuing", "description": "Issues noted during client acceptance procedures"},
+            {"id": 4, "factor": "Doubt on integrity of Management", "description": "Concerns about management's honesty or ethical values"},
+            {"id": 5, "factor": "Concerns about operating effectiveness of controls", "description": "Weaknesses in internal control environment"},
+            {"id": 6, "factor": "Effectiveness of Internal Audit Function", "description": "Inadequate or ineffective internal audit function"},
+            {"id": 7, "factor": "Ongoing investigations", "description": "Regulatory or legal investigations in progress"},
+            {"id": 8, "factor": "Negative publicity", "description": "Adverse media coverage or public perception"},
+            {"id": 9, "factor": "Complexity in operations, organization structure and products", "description": "Complex business model or organizational structure"},
+            {"id": 10, "factor": "Significant changes in economic accounting or industry environment", "description": "Major changes affecting the entity's operations"},
+            {"id": 11, "factor": "Going-concern and liquidity issues including debt covenants", "description": "Financial stability or liquidity concerns"},
+            {"id": 12, "factor": "Operating losses making risk threat of bankruptcy", "description": "History of losses or financial difficulties"},
+            {"id": 13, "factor": "Installation of significant new IT systems related to financial reporting", "description": "Recent implementation of financial systems"},
+            {"id": 14, "factor": "Prior history of fraud or error", "description": "Previous instances of fraud or significant errors"},
+            {"id": 15, "factor": "Increased risk of override of controls, fraud or error", "description": "Factors indicating higher risk of management override"},
+            {"id": 16, "factor": "Constraints on the availability of capital and credit", "description": "Difficulties in obtaining financing"},
+            {"id": 17, "factor": "Use of complex financing arrangements", "description": "Sophisticated or unusual financing structures"},
+            {"id": 18, "factor": "Corporate restructurings", "description": "Recent or planned significant organizational changes"},
+            {"id": 19, "factor": "Significant changes in entity from Prior Period", "description": "Major changes in operations, structure, or ownership"},
+            {"id": 20, "factor": "Significant transactions with related parties", "description": "Material transactions with related entities or individuals"},
+            {"id": 21, "factor": "Changes in key personnel out of key personnel", "description": "Turnover in management or key positions"},
+            {"id": 22, "factor": "Weaknesses in internal control/IFCOFR qualified", "description": "Known deficiencies in internal controls"},
+            {"id": 23, "factor": "Inefficient accounting systems and records", "description": "Poor record-keeping or accounting processes"},
+            {"id": 24, "factor": "Previous year's audit report qualified", "description": "Modified audit opinion in prior year"},
+            {"id": 25, "factor": "Changes in accounting policies", "description": "Recent changes in significant accounting policies"},
+            {"id": 26, "factor": "Rapid growth or unusual profitability especially compared to that of other companies in the same industry", "description": "Exceptional growth or profitability compared to industry peers"},
+            {"id": 27, "factor": "Any other which the auditor may consider significant (Note 1)", "description": "Other risk factors identified by the auditor"}
+        ]
+        
+        # Risk level options and weightage
+        risk_levels = {
+            "Low_Risk": 1,
+            "Medium_Risk": 4,
+            "High_Risk": 8
         }
         
-        # Count selected risk factors
-        selected_risk_factors = sum(1 for factor, selected in risk_factors.items() if selected)
+        # Display weightage reference table
+        st.markdown("#### Risk Level Weightage Reference")
+        weightage_data = {
+            "Risk Level": ["Low Risk", "Medium Risk", "High Risk"],
+            "Weightage": [1, 4, 8],
+            "NA": [0, 0, 0],
+            "High Risk": [8, 8, 8],
+            "Low Risk": [1, 1, 1],
+            "Medium Risk": [4, 4, 4]
+        }
+        weightage_df = pd.DataFrame(weightage_data)
+        st.table(weightage_df.iloc[:, :3])  # Display only the first 3 columns
         
-        # Suggest risk level based on factors
-        suggested_risk_level = "Low"
-        if selected_risk_factors >= 10:
-            suggested_risk_level = "High"
-        elif selected_risk_factors >= 5:
-            suggested_risk_level = "Medium"
+        # Initialize risk assessment data if not already in session state
+        if not st.session_state.risk_assessment_data:
+            for factor in risk_factors:
+                st.session_state.risk_assessment_data[factor["id"]] = {
+                    "factor": factor["factor"],
+                    "level": "Low_Risk",
+                    "weightage": risk_levels["Low_Risk"]
+                }
+        
+        # Create a form for the risk assessment
+        with st.form("risk_assessment_form"):
+            st.markdown("#### Risk Assessment Factors")
+            st.markdown("Select the risk level for each factor:")
             
-        st.markdown(f"**Suggested Risk Level based on factors: {suggested_risk_level}**")
-        st.markdown("*Note: The final risk level determination should be based on professional judgment.*")
+            # Create the risk assessment table with columns
+            risk_data = []
+            
+            for factor in risk_factors:
+                factor_id = factor["id"]
+                
+                # Get current risk level from session state
+                current_level = st.session_state.risk_assessment_data.get(factor_id, {}).get("level", "Low_Risk")
+                
+                # Create selectbox for risk level
+                selected_level = st.selectbox(
+                    f"{factor_id}. {factor['factor']}",
+                    options=["Low_Risk", "Medium_Risk", "High_Risk", "NA"],
+                    index=["Low_Risk", "Medium_Risk", "High_Risk", "NA"].index(current_level),
+                    key=f"risk_level_{factor_id}",
+                    help=factor["description"]
+                )
+                
+                # Calculate weightage
+                weightage = 0 if selected_level == "NA" else risk_levels.get(selected_level, 1)
+                
+                # Add to risk data
+                risk_data.append({
+                    "S. No.": factor_id,
+                    "Particulars": factor["factor"],
+                    "Level of Risk": selected_level.replace("_", " "),
+                    "Weightage": weightage
+                })
+                
+                # Update session state
+                st.session_state.risk_assessment_data[factor_id] = {
+                    "factor": factor["factor"],
+                    "level": selected_level,
+                    "weightage": weightage
+                }
+            
+            # Submit button
+            submit_risk = st.form_submit_button("Calculate Overall Risk")
         
-        # Save risk assessment to session state
-        if st.button("Save Risk Assessment"):
-            st.session_state.materiality_risk_level = risk_level
-            st.session_state.materiality_risk_factors = risk_factors
-            st.success(f"Risk level saved as {risk_level}")
+        if submit_risk or st.session_state.risk_assessment_data:
+            # Create DataFrame for display
+            risk_df = pd.DataFrame(risk_data)
+            st.dataframe(risk_df)
+            
+            # Calculate total weightage
+            total_weightage = sum(item["weightage"] for item in st.session_state.risk_assessment_data.values())
+            max_possible_weightage = len(risk_factors) * risk_levels["High_Risk"]
+            risk_percentage = (total_weightage / max_possible_weightage) * 100
+            
+            # Determine overall risk level
+            if risk_percentage < 15:
+                overall_risk = "Low RoMM"
+            elif risk_percentage < 75:
+                overall_risk = "Medium RoMM"
+            else:
+                overall_risk = "High RoMM"
+            
+            # Display overall risk assessment
+            st.markdown("#### Overall Risk Assessment")
+            
+            # Create columns for the metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Weightage", f"{total_weightage}")
+            
+            with col2:
+                st.metric("Risk Percentage", f"{risk_percentage:.2f}%")
+            
+            with col3:
+                st.metric("Overall Risk Level", overall_risk)
+            
+            # Display risk level ranges
+            st.markdown("#### Risk Level Ranges")
+            risk_ranges = pd.DataFrame({
+                "RoMM": ["Low Risk", "Medium Risk", "High Risk"],
+                "Between": ["0% - 15%", "15% - 75%", "75% - 100%"]
+            })
+            st.table(risk_ranges)
+            
+            # Save the overall risk level to session state
+            st.session_state.materiality_risk_level = overall_risk.split()[0]  # Extract just "Low", "Medium", or "High"
+            
+            # Display summary of risk factors by level
+            st.markdown("#### Risk Factors Summary")
+            
+            # Count factors by risk level
+            high_risk_factors = [item["factor"] for item in st.session_state.risk_assessment_data.values() if item["level"] == "High_Risk"]
+            medium_risk_factors = [item["factor"] for item in st.session_state.risk_assessment_data.values() if item["level"] == "Medium_Risk"]
+            low_risk_factors = [item["factor"] for item in st.session_state.risk_assessment_data.values() if item["level"] == "Low_Risk"]
+            
+            # Display counts
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("High Risk Factors", len(high_risk_factors))
+                if high_risk_factors:
+                    st.markdown("**High Risk Factors:**")
+                    for factor in high_risk_factors:
+                        st.markdown(f"- {factor}")
+            
+            with col2:
+                st.metric("Medium Risk Factors", len(medium_risk_factors))
+                if medium_risk_factors:
+                    st.markdown("**Medium Risk Factors:**")
+                    for factor in medium_risk_factors:
+                        st.markdown(f"- {factor}")
+            
+            with col3:
+                st.metric("Low Risk Factors", len(low_risk_factors))
+            
+            st.markdown("*Note: The final risk level determination should be based on professional judgment.*")
+        
+        # Export risk assessment
+        if st.button("Export Risk Assessment"):
+            # Create Excel export
+            buffer = io.BytesIO()
+            
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                # Create header data
+                header_data = {
+                    "Parameter": ["Name of Entity", "Financial Year", "Materiality Stage", "Type of Engagement", "Prepared By", "Reviewed By", "Date"],
+                    "Value": [entity_name, financial_year, materiality_stage, engagement_type, prepared_by, reviewed_by, datetime.now().strftime("%Y-%m-%d")]
+                }
+                
+                header_df = pd.DataFrame(header_data)
+                header_df.to_excel(writer, sheet_name='Risk Assessment', index=False, startrow=0)
+                
+                # Create risk assessment data
+                risk_data = []
+                for factor_id, data in st.session_state.risk_assessment_data.items():
+                    risk_data.append({
+                        "S. No.": factor_id,
+                        "Particulars": data["factor"],
+                        "Level of Risk (Select from Drop Down)": data["level"].replace("_", " "),
+                        "Weightage (Select from table)": data["weightage"]
+                    })
+                
+                risk_assessment_df = pd.DataFrame(risk_data)
+                risk_assessment_df.to_excel(writer, sheet_name='Risk Assessment', index=False, startrow=len(header_data["Parameter"]) + 2)
+                
+                # Add overall assessment
+                overall_data = {
+                    "Parameter": ["Total Weightage", "Risk Percentage", "Overall Risk Assessment"],
+                    "Value": [total_weightage, f"{risk_percentage:.2f}%", overall_risk]
+                }
+                
+                overall_df = pd.DataFrame(overall_data)
+                overall_df.to_excel(writer, sheet_name='Risk Assessment', index=False, startrow=len(risk_data) + len(header_data["Parameter"]) + 4)
+                
+                # Add risk ranges
+                risk_ranges.to_excel(writer, sheet_name='Risk Assessment', index=False, startrow=len(risk_data) + len(header_data["Parameter"]) + len(overall_data["Parameter"]) + 6)
+                
+                # Format the Excel file
+                workbook = writer.book
+                worksheet = writer.sheets['Risk Assessment']
+                
+                # Add formats
+                header_format = workbook.add_format({
+                    'bold': True,
+                    'text_wrap': True,
+                    'valign': 'top',
+                    'fg_color': '#D7E4BC',
+                    'border': 1
+                })
+                
+                # Apply formats
+                for col_num, value in enumerate(header_df.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+                
+                # Set column widths
+                worksheet.set_column('A:A', 10)
+                worksheet.set_column('B:B', 50)
+                worksheet.set_column('C:D', 15)
+            
+            # Download link
+            buffer.seek(0)
+            b64 = base64.b64encode(buffer.read()).decode()
+            href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="risk_assessment.xlsx">Download Risk Assessment Excel</a>'
+            st.markdown(href, unsafe_allow_html=True)
     
     # Step 2: Benchmark Selection
     with mat_tab2:
@@ -522,11 +810,11 @@ def create_materiality_calculator_dialog():
             st.info("PDF report generation would be implemented here")
             # This would require additional libraries like ReportLab or WeasyPrint 
     
-    # Misstatement Tracker (ISA 450)
+    # Misstatement Tracker (SA 450)
     with mat_tab5:
-        st.markdown("### Evaluation of Material Misstatements Identified during the Audit (ISA 450)")
+        st.markdown("### Evaluation of Material Misstatements Identified during the Audit (SA 450)")
         st.markdown("""
-        This tracker helps evaluate misstatements identified during the audit in accordance with ISA 450.
+        This tracker helps evaluate misstatements identified during the audit in accordance with SA 450.
         Track both known errors (Para A5) and likely errors (Para 11) to assess their impact on the financial statements.
         """)
         
@@ -549,7 +837,7 @@ def create_materiality_calculator_dialog():
         st.markdown("---")
         
         # Known Errors Section
-        st.markdown("#### Known Errors (Para A5 of ISA 450)")
+        st.markdown("#### Known Errors (Para A5 of SA 450)")
         st.markdown("Errors found during the audit")
         
         # Add new known error
@@ -610,7 +898,7 @@ def create_materiality_calculator_dialog():
         st.markdown("---")
         
         # Likely Errors Section
-        st.markdown("#### Likely Errors (Para 11 of ISA 450)")
+        st.markdown("#### Likely Errors (Para 11 of SA 450)")
         st.markdown("Errors on review of old balances, reconciliation differences, etc.")
         
         # Add new likely error
@@ -676,9 +964,9 @@ def create_materiality_calculator_dialog():
         # Create summary table
         summary_data = {
             "Particulars": [
-                "Known Errors Para A5 of ISA 450 (Errors found during the Audit)",
+                "Known Errors Para A5 of SA 450 (Errors found during the Audit)",
                 "Total Known Errors",
-                "Likely Errors Para 11 of ISA 450 (Eg.: Errors on review of Old Balances/Reconciliation Differences etc.)",
+                "Likely Errors Para 11 of SA 450 (Eg.: Errors on review of Old Balances/Reconciliation Differences etc.)",
                 "Total Likely Errors",
                 "Total Uncorrected Misstatements Known & Likely Misstatements",
                 "Materiality Determined",
