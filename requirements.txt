@@ -9,3 +9,5 @@ PyPDF2>=3.0.0
 tabula-py>=2.7.0
 pdf2image>=1.16.3
 pytesseract>=0.3.10
+ReportLab>=3.6.12
+WeasyPrint>=56.1.0
