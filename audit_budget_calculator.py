@@ -709,11 +709,6 @@ COLOR_CARD_BACKGROUND = "#1e1e1e"  # Lighter background for cards
 COLOR_TEXT = "#e6e6e6"          # Main text color
 COLOR_TEXT_MUTED = "#9e9e9e"    # Muted text color
 # Apply custom theme
-def create_team_reports():
-    """Creates the content for the team reports tab."""
-    st.markdown("### Team Reports")
-    st.markdown("Analysis of team member utilization and performance across projects.")
-
 def apply_custom_theme():
     # Medium-inspired dark theme
     st.markdown("""
@@ -1458,6 +1453,21 @@ def create_team_reports():
     st.markdown("### Team Reports")
     st.markdown("Analysis of team member utilization and performance across projects.")
 
+    # Team Member Utilization
+    st.markdown("#### Team Member Utilization")
+    # Calculate and display utilization data here
+
+    # Schedule Entries
+    st.markdown("#### Schedule Entries")
+    # Display schedule entries with filtering options here
+
+    # Allocation Summary
+    st.markdown("#### Allocation Summary")
+    # Provide a summary of allocation for each team member here
+
+    # Data Display
+    # Use dataframes to display detailed information here
+
 def create_dashboard():
     """Creates the content for the dashboard tab."""
 
@@ -2178,190 +2188,25 @@ def create_time_tracking():
         else:
             st.info("No time entries recorded for this project yet.")
 
-def create_project_reports():
-    """Creates the content for the project reports tab."""
-    
-    st.markdown("### Project Reports")
-    st.markdown("Generate and view reports for audit projects.")
-    
-    # Check if projects exist
-    if not st.session_state.projects:
-        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
-        return  # Exit early if no projects
-    
-    # Project selection
-    project_names = list(st.session_state.projects.keys())
-    selected_project = st.selectbox(
-        "Select Project", 
-        project_names,
-        key="project_report_select"
-    )
-    
-    project_data = st.session_state.projects[selected_project]
-    
-    # Display project summary
-    st.markdown(f"## Project Summary: {selected_project}")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### Project Details")
-        st.markdown(f"**Industry:** {project_data['industry_name']}")
-        st.markdown(f"**Turnover:** ₹{project_data['turnover']} Crores")
-        st.markdown(f"**Category:** {project_data['audit_category_display']}")
-        st.markdown(f"**Listed Company:** {'Yes' if project_data['is_listed'] else 'No'}")
-        st.markdown(f"**EQCR Required:** {'Yes' if project_data['eqcr_required'] else 'No'}")
-    
-    with col2:
-        st.markdown("### Risk Assessment")
-        risk_factors = project_data['risk_factors']
-        
-        st.markdown(f"**Controls Risk:** {'Low' if risk_factors['controls_risk'] == 1 else ('Medium' if risk_factors['controls_risk'] == 2 else 'High')}")
-        st.markdown(f"**Inherent Risk:** {'Low' if risk_factors['inherent_risk'] == 1 else ('Medium' if risk_factors['inherent_risk'] == 2 else 'High')}")
-        st.markdown(f"**Complexity:** {'Low' if risk_factors['complexity'] == 1 else ('Medium' if risk_factors['complexity'] == 2 else 'High')}")
-        st.markdown(f"**Information Delay Risk:** {'Low' if risk_factors['info_delay_risk'] == 1 else ('Medium' if risk_factors['info_delay_risk'] == 2 else 'High')}")
-    
-    # Budget vs Actual
-    st.markdown("### Budget vs Actual Hours")
-    
-    # Create DataFrame for comparison
-    phases = ["planning", "fieldwork", "managerReview", "partnerReview", "total"]
-    phase_display = ["Planning", "Fieldwork", "Manager Review", "Partner Review", "Total"]
-    
-    budget_hours = [project_data["phase_hours"].get(phase, 0) if phase != "total" else project_data["total_hours"] for phase in phases]
-    
-    # Get actual hours if available
-    actual_hours = [0] * len(phases)
-    if "actual_hours" in project_data:
-        actual_hours = [project_data["actual_hours"].get(phase, 0) for phase in phases]
-    
-    # Calculate variance
-    variance_hours = [actual - budget for actual, budget in zip(actual_hours, budget_hours)]
-    variance_percent = [round((actual / budget) * 100 - 100, 1) if budget > 0 else 0 for actual, budget in zip(actual_hours, budget_hours)]
-    
-    # Create DataFrame
-    df_comparison = pd.DataFrame({
-        "Phase": phase_display,
-        "Budget Hours": budget_hours,
-        "Actual Hours": actual_hours,
-        "Variance (Hours)": variance_hours,
-        "Variance (%)": variance_percent
-    })
-    
-    # Display as table
-    st.table(df_comparison)
-    
-    # Staff allocation
-    st.markdown("### Staff Allocation")
-    
-    # Create DataFrame for staff allocation
-    staff_roles = ["partner", "manager", "qualifiedAssistant", "seniorArticle", "juniorArticle", "eqcr"]
-    staff_display = ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article", "EQCR"]
-    
-    staff_hours = [project_data["staff_hours"].get(role, 0) for role in staff_roles]
-    
-    # Create DataFrame
-    df_staff = pd.DataFrame({
-        "Role": staff_display,
-        "Allocated Hours": staff_hours
-    })
-    
-    # Display as table
-    st.table(df_staff)
-    
-    # Export options
-    st.markdown("### Export Options")
-    
-    if st.button("Export to Excel", key="export_excel_btn"):
-        # Create Excel file
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            # Project Summary
-            summary_data = {
-                "Project": [selected_project],
-                "Industry": [project_data['industry_name']],
-                "Turnover (Crores)": [project_data['turnover']],
-                "Category": [project_data['audit_category_display']],
-                "Listed": ["Yes" if project_data['is_listed'] else "No"],
-                "EQCR Required": ["Yes" if project_data['eqcr_required'] else "No"],
-                "Controls Risk": ['Low' if risk_factors['controls_risk'] == 1 else ('Medium' if risk_factors['controls_risk'] == 2 else 'High')],
-                "Inherent Risk": ['Low' if risk_factors['inherent_risk'] == 1 else ('Medium' if risk_factors['inherent_risk'] == 2 else 'High')],
-                "Complexity": ['Low' if risk_factors['complexity'] == 1 else ('Medium' if risk_factors['complexity'] == 2 else 'High')],
-                "Info Delay Risk": ['Low' if risk_factors['info_delay_risk'] == 1 else ('Medium' if risk_factors['info_delay_risk'] == 2 else 'High')]
-            }
-            
-            pd.DataFrame(summary_data).to_excel(writer, sheet_name="Project Summary", index=False)
-            
-            # Budget vs Actual
-            df_comparison.to_excel(writer, sheet_name="Budget vs Actual", index=False)
-            
-            # Staff Allocation
-            df_staff.to_excel(writer, sheet_name="Staff Allocation", index=False)
-            
-            # Time Entries if available
-            if "time_entries" in st.session_state and selected_project in st.session_state.time_entries:
-                entries = st.session_state.time_entries[selected_project]
-                if entries:
-                    df_entries = pd.DataFrame(entries)
-                    df_entries = df_entries[["date", "team_member", "phase", "hours", "description"]]
-                    df_entries.columns = ["Date", "Team Member", "Phase", "Hours", "Description"]
-                    df_entries.to_excel(writer, sheet_name="Time Entries", index=False)
-        
-        # Download link
-        st.download_button(
-            label="Download Excel Report",
-            data=buffer.getvalue(),
-            file_name=f"{selected_project}_Audit_Report.xlsx",
-            mime="application/vnd.ms-excel"
-        )
-    
-    if st.button("Generate PDF Report", key="generate_pdf_btn"):
-        st.info("PDF report generation functionality will be implemented in a future update.")
-        
-# --- TAB CONTENT (Using 'with' blocks for each tab) ---
-
-# Main content area
-if 'show_materiality_calculator' in st.session_state and st.session_state.show_materiality_calculator:
-    create_materiality_calculator_dialog()
-    if st.button("Return to Main Application"):
-        st.session_state.show_materiality_calculator = False
-        st.rerun()
-else:
-    # Dashboard Tab
-    with tab_dashboard:
-        create_dashboard()
-
-    # Budget Calculator Tab
-    with tab1:
-        create_budget_calculator()
-
-    # Time Tracking Tab
-    with tab2:
-        create_time_tracking()
-
-    # Project Reports Tab
-    with tab3:
-        create_project_reports()
-
-    # Team Reports Tab
-    with tab4:
-        create_team_reports()
-
-    # Team Scheduling Tab
-    with tab5:
-        col1, col2 = st.columns([1, 3])
-        
-        with col1:
-            st.markdown("### Team Management")
-            manage_team_members()
-        
-        with col2:
-            manage_team_scheduling()
-
 def create_team_reports():
     """Creates the content for the team reports tab."""
     st.markdown("### Team Reports")
     st.markdown("Analysis of team member utilization and performance across projects.")
+
+    # Team Member Utilization
+    st.markdown("#### Team Member Utilization")
+    # Calculate and display utilization data here
+
+    # Schedule Entries
+    st.markdown("#### Schedule Entries")
+    # Display schedule entries with filtering options here
+
+    # Allocation Summary
+    st.markdown("#### Allocation Summary")
+    # Provide a summary of allocation for each team member here
+
+    # Data Display
+    # Use dataframes to display detailed information here
 
 def manage_team_scheduling():
     """Manages team scheduling with general availability and specific phase allocation."""
@@ -2641,3 +2486,186 @@ def manage_team_members():
         st.info("No team members found. Add your first team member above.")
 
 # The materiality calculator function is now imported from materiality_calculator.py
+
+def create_project_reports():
+    """Creates the content for the project reports tab."""
+    
+    st.markdown("### Project Reports")
+    st.markdown("Generate and view reports for audit projects.")
+    
+    # Check if projects exist
+    if not st.session_state.projects:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+        return  # Exit early if no projects
+    
+    # Project selection
+    project_names = list(st.session_state.projects.keys())
+    selected_project = st.selectbox(
+        "Select Project", 
+        project_names,
+        key="project_report_select"
+    )
+    
+    project_data = st.session_state.projects[selected_project]
+    
+    # Display project summary
+    st.markdown(f"## Project Summary: {selected_project}")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Project Details")
+        st.markdown(f"**Industry:** {project_data['industry_name']}")
+        st.markdown(f"**Turnover:** ₹{project_data['turnover']} Crores")
+        st.markdown(f"**Category:** {project_data['audit_category_display']}")
+        st.markdown(f"**Listed Company:** {'Yes' if project_data['is_listed'] else 'No'}")
+        st.markdown(f"**EQCR Required:** {'Yes' if project_data['eqcr_required'] else 'No'}")
+    
+    with col2:
+        st.markdown("### Risk Assessment")
+        risk_factors = project_data['risk_factors']
+        
+        st.markdown(f"**Controls Risk:** {'Low' if risk_factors['controls_risk'] == 1 else ('Medium' if risk_factors['controls_risk'] == 2 else 'High')}")
+        st.markdown(f"**Inherent Risk:** {'Low' if risk_factors['inherent_risk'] == 1 else ('Medium' if risk_factors['inherent_risk'] == 2 else 'High')}")
+        st.markdown(f"**Complexity:** {'Low' if risk_factors['complexity'] == 1 else ('Medium' if risk_factors['complexity'] == 2 else 'High')}")
+        st.markdown(f"**Information Delay Risk:** {'Low' if risk_factors['info_delay_risk'] == 1 else ('Medium' if risk_factors['info_delay_risk'] == 2 else 'High')}")
+    
+    # Budget vs Actual
+    st.markdown("### Budget vs Actual Hours")
+    
+    # Create DataFrame for comparison
+    phases = ["planning", "fieldwork", "managerReview", "partnerReview", "total"]
+    phase_display = ["Planning", "Fieldwork", "Manager Review", "Partner Review", "Total"]
+    
+    budget_hours = [project_data["phase_hours"].get(phase, 0) if phase != "total" else project_data["total_hours"] for phase in phases]
+    
+    # Get actual hours if available
+    actual_hours = [0] * len(phases)
+    if "actual_hours" in project_data:
+        actual_hours = [project_data["actual_hours"].get(phase, 0) for phase in phases]
+    
+    # Calculate variance
+    variance_hours = [actual - budget for actual, budget in zip(actual_hours, budget_hours)]
+    variance_percent = [round((actual / budget) * 100 - 100, 1) if budget > 0 else 0 for actual, budget in zip(actual_hours, budget_hours)]
+    
+    # Create DataFrame
+    df_comparison = pd.DataFrame({
+        "Phase": phase_display,
+        "Budget Hours": budget_hours,
+        "Actual Hours": actual_hours,
+        "Variance (Hours)": variance_hours,
+        "Variance (%)": variance_percent
+    })
+    
+    # Display as table
+    st.table(df_comparison)
+    
+    # Staff allocation
+    st.markdown("### Staff Allocation")
+    
+    # Create DataFrame for staff allocation
+    staff_roles = ["partner", "manager", "qualifiedAssistant", "seniorArticle", "juniorArticle", "eqcr"]
+    staff_display = ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article", "EQCR"]
+    
+    staff_hours = [project_data["staff_hours"].get(role, 0) for role in staff_roles]
+    
+    # Create DataFrame
+    df_staff = pd.DataFrame({
+        "Role": staff_display,
+        "Allocated Hours": staff_hours
+    })
+    
+    # Display as table
+    st.table(df_staff)
+    
+    # Export options
+    st.markdown("### Export Options")
+    
+    if st.button("Export to Excel", key="export_excel_btn"):
+        # Create Excel file
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            # Project Summary
+            summary_data = {
+                "Project": [selected_project],
+                "Industry": [project_data['industry_name']],
+                "Turnover (Crores)": [project_data['turnover']],
+                "Category": [project_data['audit_category_display']],
+                "Listed": ["Yes" if project_data['is_listed'] else "No"],
+                "EQCR Required": ["Yes" if project_data['eqcr_required'] else "No"],
+                "Controls Risk": ['Low' if risk_factors['controls_risk'] == 1 else ('Medium' if risk_factors['controls_risk'] == 2 else 'High')],
+                "Inherent Risk": ['Low' if risk_factors['inherent_risk'] == 1 else ('Medium' if risk_factors['inherent_risk'] == 2 else 'High')],
+                "Complexity": ['Low' if risk_factors['complexity'] == 1 else ('Medium' if risk_factors['complexity'] == 2 else 'High')],
+                "Info Delay Risk": ['Low' if risk_factors['info_delay_risk'] == 1 else ('Medium' if risk_factors['info_delay_risk'] == 2 else 'High')]
+            }
+            
+            pd.DataFrame(summary_data).to_excel(writer, sheet_name="Project Summary", index=False)
+            
+            # Budget vs Actual
+            df_comparison.to_excel(writer, sheet_name="Budget vs Actual", index=False)
+            
+            # Staff Allocation
+            df_staff.to_excel(writer, sheet_name="Staff Allocation", index=False)
+            
+            # Time Entries if available
+            if "time_entries" in st.session_state and selected_project in st.session_state.time_entries:
+                entries = st.session_state.time_entries[selected_project]
+                if entries:
+                    df_entries = pd.DataFrame(entries)
+                    df_entries = df_entries[["date", "team_member", "phase", "hours", "description"]]
+                    df_entries.columns = ["Date", "Team Member", "Phase", "Hours", "Description"]
+                    df_entries.to_excel(writer, sheet_name="Time Entries", index=False)
+        
+        # Download link
+        st.download_button(
+            label="Download Excel Report",
+            data=buffer.getvalue(),
+            file_name=f"{selected_project}_Audit_Report.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+    
+    if st.button("Generate PDF Report", key="generate_pdf_btn"):
+        st.info("PDF report generation functionality will be implemented in a future update.")
+        
+# --- TAB CONTENT (Using 'with' blocks for each tab) ---
+
+# Main content area
+if 'show_materiality_calculator' in st.session_state and st.session_state.show_materiality_calculator:
+    create_materiality_calculator_dialog()
+    if st.button("Return to Main Application"):
+        st.session_state.show_materiality_calculator = False
+        st.rerun()
+else:
+    # Define tabs for the application
+    tab1, tab5, tab2, tab3, tab4 = st.tabs(["Budget", "Team Scheduling", "Time Tracking", "Project Reports", "Team Reports"])
+
+    # Use the tab1 for its content
+    with tab1:
+        create_budget_calculator()
+
+    # Team Scheduling Tab
+    with tab5:
+        col1, col2 = st.columns([1, 3])
+       
+        with col1:
+            st.markdown("### Team Management")
+            manage_team_members()
+        
+        with col2:
+            manage_team_scheduling()
+
+    # Time Tracking Tab
+    with tab2:
+        create_time_tracking()
+
+    # Project Reports Tab
+    with tab3:
+        create_project_reports()
+
+    # Team Reports Tab
+    with tab4:
+        create_team_reports()
+
+
+
+
