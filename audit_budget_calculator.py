@@ -708,6 +708,16 @@ COLOR_CARD_BACKGROUND = "#1e1e1e"  # Lighter background for cards
 COLOR_TEXT = "#e6e6e6"          # Main text color
 COLOR_TEXT_MUTED = "#9e9e9e"    # Muted text color
 # Apply custom theme
+def create_team_reports():
+    """Creates the content for the team reports tab."""
+    st.markdown("### Team Reports")
+    st.markdown("Analysis of team member utilization and performance across projects.")
+
+def create_team_reports():
+    """Creates the content for the team reports tab."""
+    st.markdown("### Team Reports")
+    st.markdown("Analysis of team member utilization and performance across projects.")
+
 def apply_custom_theme():
     # Medium-inspired dark theme
     st.markdown("""
@@ -1446,11 +1456,11 @@ with st.sidebar:
                 st.info("No backups found")
 
 # --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
-tab_dashboard, tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports", "Team Scheduling"
-])
 
-# --- DASHBOARD FUNCTION (Content for the Dashboard Tab) ---
+def create_team_reports():
+    """Creates the content for the team reports tab."""
+    st.markdown("### Team Reports")
+    st.markdown("Analysis of team member utilization and performance across projects.")
 
 def create_dashboard():
     """Creates the content for the dashboard tab."""
