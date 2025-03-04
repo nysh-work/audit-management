@@ -1,14 +1,24 @@
 # cloud_storage.py
-from google.cloud import storage
+"""Module for managing Google Cloud Storage operations."""
 import os
-import tempfile
 import logging
+from google.cloud import storage
+from google.cloud.exceptions import NotFound, Conflict
+import streamlit as st
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Define tabs
+tab_dashboard, tab_other = st.tabs(["Dashboard", "Other Tab"])
+
+# Use the tab
+with tab_dashboard:
+    st.write("This is the dashboard tab.")
+
 class CloudStorageManager:
+    """Class to manage Google Cloud Storage operations."""
     def __init__(self, bucket_name):
         self.bucket_name = bucket_name
         self.client = storage.Client()
@@ -16,21 +26,27 @@ class CloudStorageManager:
         # Get or create the bucket
         try:
             self.bucket = self.client.get_bucket(bucket_name)
-            logger.info(f"Connected to bucket: {bucket_name}")
+            logger.info("Connected to bucket: %s", bucket_name)
+        except NotFound:
+            logger.info("Bucket %s not found, creating it.", bucket_name)
+            try:
+                self.bucket = self.client.create_bucket(bucket_name)
+                logger.info("Bucket %s created.", bucket_name)
+            except Conflict:
+                logger.info("Bucket %s already exists and you own it.", bucket_name)
+                self.bucket = self.client.get_bucket(bucket_name)
         except Exception as e:
-            logger.info(f"Bucket {bucket_name} not found, creating it: {str(e)}")
-            # Note: In GCP, bucket names must be globally unique
-            self.bucket = self.client.create_bucket(bucket_name)
+            logger.error("Error accessing bucket %s: %s", bucket_name, str(e))
     
     def upload_file(self, source_file_name, destination_blob_name):
         """Uploads a file from the local filesystem to GCS."""
         try:
             blob = self.bucket.blob(destination_blob_name)
             blob.upload_from_filename(source_file_name)
-            logger.info(f"Uploaded {source_file_name} to {destination_blob_name}")
+            logger.info("Uploaded %s to %s", source_file_name, destination_blob_name)
             return True
         except Exception as e:
-            logger.error(f"Error uploading file: {e}")
+            logger.error("Error uploading file: %s", e)
             return False
     
     def download_file(self, source_blob_name, destination_file_name):
@@ -43,10 +59,10 @@ class CloudStorageManager:
             
             # Download the file
             blob.download_to_filename(destination_file_name)
-            logger.info(f"Downloaded {source_blob_name} to {destination_file_name}")
+            logger.info("Downloaded %s to %s", source_blob_name, destination_file_name)
             return True
         except Exception as e:
-            logger.error(f"Error downloading file: {e}")
+            logger.error("Error downloading file: %s", e)
             return False
     
     def file_exists(self, blob_name):

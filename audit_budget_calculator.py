@@ -1,26 +1,24 @@
-import streamlit as st
+"""Audit Budget Calculator and Time Tracker
+
+This module provides functionality for managing audit budgets, tracking time, and generating reports.
+"""
+
+import os
 import sqlite3
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, date, timedelta
-import io
-import base64
 import json
 import shutil
-import os
 import glob
-import reportlab
-import weasyprint
-import uuid
-    # Import the materiality calculator module
-from materiality_calculator import create_materiality_calculator_dialog
-
-# --- DATABASE FUNCTIONS (Same as before - no changes needed here) ---
-# --- LOGGING SETUP ---
 import logging
+from datetime import datetime, date, timedelta
 from pathlib import Path
+import uuid
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# Import the materiality calculator module
+from materiality_calculator import create_materiality_calculator_dialog
 
 # Define the app data directory
 home_dir = str(Path.home())
@@ -141,7 +139,7 @@ def init_db():
     try:
         # Get the database path
         db_path = get_db_path()
-        logging.info(f"Initializing database at {db_path}")
+        logging.info("Initializing database at %s", db_path)
         
         # Connect to the database
         conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -204,7 +202,7 @@ def init_db():
         conn.commit()
         return conn
     except Exception as e:
-        error_msg = f"Database initialization error: {str(e)}"
+        error_msg = "Database initialization error: %s" % str(e)
         logging.error(error_msg)
         st.error(error_msg)
         raise
@@ -416,7 +414,8 @@ def save_data():
                 df.to_csv(time_entries_file, index=False)
                 cloud_storage.upload_file(time_entries_file, 'data/time_entries.csv')
         except Exception as e:
-            logging.error(f"Error saving data to cloud storage: {e}")
+            logging.error("Error saving data to cloud storage: %s", e)
+            st.error("Error saving data to files: %s", e)
     
     # Backup to local files (for local development or extra safety)
     try:
@@ -429,7 +428,7 @@ def save_data():
         if not df.empty:
             df.to_csv(time_entries_file, index=False)
     except Exception as e:
-        st.error(f"Error saving data to files: {e}")
+        st.error("Error saving data to files: %s", e)
 
 def load_data():
     """Loads project and time entry data from the database, with fallback to files."""
@@ -464,7 +463,9 @@ def load_data():
             save_time_entries_to_db()  # Save loaded data to DB
 
         # Log the loading operation
-        logging.info(f"Data loaded successfully. Projects: {len(st.session_state.projects)}, Time entries: {len(st.session_state.time_entries)}, Team members: {len(st.session_state.team_members)}, Schedule entries: {len(st.session_state.schedule_entries)}")
+        logging.info("Data loaded successfully. Projects: %s, Time entries: %s, Team members: %s, Schedule entries: %s",
+                    len(st.session_state.projects), len(st.session_state.time_entries),
+                    len(st.session_state.team_members), len(st.session_state.schedule_entries))
 
     except Exception as e:
         error_msg = f"Error loading data: {str(e)}"
@@ -528,7 +529,7 @@ def backup_database(event=None, context=None):
             else:
                 return False, "Database file not found in cloud storage."
         except Exception as e:
-            return False, f"Cloud backup failed: {str(e)}"
+            return False, "Cloud backup failed: %s" % str(e)
     
     # For local environment, use the existing code
     db_file = os.path.join(data_dir, 'audit_management.db')
@@ -554,7 +555,7 @@ def backup_database(event=None, context=None):
         
         return True, f"Local backup created successfully: audit_management_{timestamp}.db"
     except Exception as e:
-        return False, f"Local backup failed: {str(e)}"
+        return False, "Local backup failed: %s" % str(e)
 
 def restore_database(backup_file_or_blob):
     """Restores the database from a backup file or blob."""
@@ -607,7 +608,7 @@ def restore_database(backup_file_or_blob):
             
             return True, "Database restored successfully from cloud backup. Please refresh the page."
         except Exception as e:
-            return False, f"Cloud restore failed: {str(e)}"
+            return False, "Cloud restore failed: %s" % str(e)
     
     # For local environment, use the existing code
     home_dir = str(Path.home())
@@ -628,7 +629,7 @@ def restore_database(backup_file_or_blob):
         
         return True, "Database restored successfully. Please restart the application."
     except Exception as e:
-        return False, f"Local restore failed: {str(e)}"
+        return False, "Local restore failed: %s" % str(e)
 
 def list_backups():
     """Lists all available database backups."""
@@ -657,7 +658,7 @@ def list_backups():
             
             return backups
         except Exception as e:
-            logging.error(f"Error listing cloud backups: {e}")
+            logging.error("Error listing cloud backups: %s", e)
             return []
     
     # For local environment, use the existing code
@@ -708,11 +709,6 @@ COLOR_CARD_BACKGROUND = "#1e1e1e"  # Lighter background for cards
 COLOR_TEXT = "#e6e6e6"          # Main text color
 COLOR_TEXT_MUTED = "#9e9e9e"    # Muted text color
 # Apply custom theme
-def create_team_reports():
-    """Creates the content for the team reports tab."""
-    st.markdown("### Team Reports")
-    st.markdown("Analysis of team member utilization and performance across projects.")
-
 def create_team_reports():
     """Creates the content for the team reports tab."""
     st.markdown("### Team Reports")
@@ -1142,7 +1138,7 @@ with st.sidebar:
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
                         except Exception as e:
-                            st.error(f"Error processing PDF: {str(e)}")
+                            st.error("Error processing PDF: %s" % str(e))
             
             with converter_tabs[1]:
                 st.caption("Use this for PDFs with complex tables, merged cells, or unusual layouts")
@@ -1333,7 +1329,7 @@ with st.sidebar:
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
                         except Exception as e:
-                            st.error(f"Error processing complex tables: {str(e)}")
+                            st.error("Error processing complex tables: %s" % str(e))
             
             with converter_tabs[2]:
                 st.caption("Use this for scanned PDFs that need OCR (Optical Character Recognition)")
@@ -1385,7 +1381,7 @@ with st.sidebar:
                         except ImportError:
                             st.error("OCR libraries not available. Please install pdf2image and pytesseract.")
                         except Exception as e:
-                            st.error(f"Error processing scanned PDF: {str(e)}")
+                            st.error("Error processing scanned PDF: %s" % str(e))
     st.divider()
     
     # Database management section with password protection
