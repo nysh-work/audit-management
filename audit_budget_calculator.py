@@ -66,7 +66,11 @@ authenticator = stauth.Authenticate(
     config['cookie']['name'],
     config['cookie']['key'],
     config['cookie']['expiry_days'],
-    config['preauthorized']
+)
+
+# When you want to use the register_user functionality
+authenticator.register_user(
+    preauthorization=config['preauthorized']  # Pass it here instead
 )
 
 # Define the app data directory
