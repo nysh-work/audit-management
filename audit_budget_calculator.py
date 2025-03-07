@@ -18,60 +18,11 @@ import tabula  # For PDF table extraction
 import pytesseract # For OCR
 import PyPDF2 # For merge function
 from pdf2image import convert_from_bytes  # For scanned PDFs
-import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 
 # Import the materiality calculator module
 from materiality_calculator import create_materiality_calculator_dialog
-
-# Define user credentials and roles
-config = {
-    'credentials': {
-        'usernames': {
-            'admin': {
-                'name': 'Admin User',
-                'password': ' ',  # Use hashed passwords
-                'role': 'admin'
-            },
-            'auditor': {
-                'name': 'Auditor User',
-                'password': ' ',  # Use hashed passwords
-                'role': 'auditor'
-            }
-        }
-    },
-    'cookie': {
-        'expiry_days': 30,
-        'key': 'some_signature_key',
-        'name': 'some_cookie_name'
-    },
-    'preauthorized': {
-        'emails': []
-    }
-}
-
-# Hash the passwords
-# Retrieve hashed passwords from environment variables
-admin_password = os.environ.get('ADMIN_PASSWORD_HASH', 'default_admin_hash')
-auditor_password = os.environ.get('AUDITOR_PASSWORD_HASH', 'default_auditor_hash')
-
-hashed_passwords = [admin_password, auditor_password]
-config['credentials']['usernames']['admin']['password'] = hashed_passwords[0]
-config['credentials']['usernames']['auditor']['password'] = hashed_passwords[1]
-
-# Initialize the authenticator
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days'],
-)
-
-# When you want to use the register_user functionality
-authenticator.register_user(
-    preauthorized_emails=config['preauthorized']['emails']  # Corrected parameter
-)
 
 # Define the app data directory
 home_dir = str(Path.home())
@@ -252,6 +203,18 @@ def init_db():
             )
         ''')
 
+        # Create clients table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                contact_details TEXT,
+                industry TEXT,
+                past_engagements TEXT,
+                data TEXT
+            )
+        ''')
+
         conn.commit()
         return conn
     except Exception as e:
@@ -427,6 +390,29 @@ def save_schedule_entries_to_db():
     conn.commit()
     conn.close()
 
+def save_clients_to_db():
+    """Saves clients from session state to the database."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM clients")  # Clear existing data
+
+    for name, client_data in st.session_state.clients.items():
+        client_json = json.dumps(client_data)
+        c.execute("INSERT INTO clients (name, contact_details, industry, past_engagements, data) VALUES (?, ?, ?, ?, ?)",
+                  (name, client_data.get('contact_details', ''), client_data.get('industry', ''), client_data.get('past_engagements', ''), client_json))
+
+    conn.commit()
+    conn.close()
+
+def load_clients_from_db():
+    """Loads clients from the database into session state."""
+    conn = init_db()
+    c = conn.cursor()
+    c.execute("SELECT name, contact_details, industry, past_engagements, data FROM clients")
+    clients = {name: json.loads(data) for name, contact_details, industry, past_engagements, data in c.fetchall()}
+    conn.close()
+    return clients
+
 # --- DATA LOADING AND SAVING (Corrected Order) ---
 
 def save_data():
@@ -435,6 +421,7 @@ def save_data():
     save_time_entries_to_db()
     save_team_members_to_db()
     save_schedule_entries_to_db()
+    save_clients_to_db()
 
     # Define paths
     home_dir = str(Path.home())
@@ -500,6 +487,7 @@ def load_data():
         st.session_state.time_entries = load_time_entries_from_db()
         st.session_state.team_members = load_team_members_from_db()
         st.session_state.schedule_entries = load_schedule_entries_from_db()
+        st.session_state.clients = load_clients_from_db()
 
         # Fallback to files if database is empty (for backward compatibility)
         projects_file = os.path.join(data_dir, 'projects.json')
@@ -1157,6 +1145,8 @@ if 'team_members' not in st.session_state:
     st.session_state.team_members = {}
 if 'schedule_entries' not in st.session_state:
     st.session_state.schedule_entries = []
+if 'clients' not in st.session_state:
+    st.session_state.clients = {}
 if 'sidebar_authenticated' not in st.session_state:
     st.session_state.sidebar_authenticated = False
 if 'sidebar_password_attempt' not in st.session_state:
@@ -2065,6 +2055,8 @@ if st.session_state.schedule_entries:
      # Handle schedule entry deletion
     if 'delete_schedule_entry' in st.session_state:
         del st.session_state.schedule_entries[st.session_state.delete_schedule_entry]
+        save_data()
+        del st.session_state.delete_schedule_entry
         save_data()
         del st.session_state.delete_schedule_entry
         st.success("Schedule entry deleted!")
