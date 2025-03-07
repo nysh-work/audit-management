@@ -52,9 +52,8 @@ config = {
 }
 
 # Hash the passwords
-hashed_passwords = stauth.Hasher(['admin_password', 'auditor_password']).generate()
+hashed_passwords = stauth.Hasher(['admin_password']).generate()
 config['credentials']['usernames']['admin']['password'] = hashed_passwords[0]
-config['credentials']['usernames']['auditor']['password'] = hashed_passwords[1]
 
 # Initialize the authenticator
 authenticator = stauth.Authenticate(
