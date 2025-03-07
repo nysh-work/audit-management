@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import uuid
 import io
-
+import pypdf2
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1462,7 +1462,39 @@ with st.sidebar:
                             st.error(f"Error processing scanned PDF: {str(e)}")
 
     st.divider()
+    # Add PDF merge functionality to the sidebar
+    with st.sidebar.expander("PDF Merge Tool", expanded=False):
+        st.markdown("### Merge Multiple PDFs")
+        st.caption("Upload multiple PDF files to merge them into a single PDF document.")
 
+        uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True, key="pdf_merger")
+
+        if uploaded_files:
+            if st.button("Merge PDFs"):
+                # Create a PDF writer object
+                pdf_writer = PyPDF2.PdfWriter()
+
+                # Iterate over the uploaded files and add them to the writer
+                for uploaded_file in uploaded_files:
+                    # Read the PDF file
+                    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                    # Add each page to the writer
+                    for page in range(len(pdf_reader.pages)):
+                        pdf_writer.add_page(pdf_reader.pages[page])
+
+                # Create a BytesIO object to save the merged PDF
+                merged_pdf = io.BytesIO()
+                pdf_writer.write(merged_pdf)
+                merged_pdf.seek(0)
+
+                # Provide a download button for the merged PDF
+                st.download_button(
+                    label="Download Merged PDF",
+                    data=merged_pdf,
+                    file_name="merged_document.pdf",
+                    mime="application/pdf"
+                )
+            
     # Database management section with password protection
     with st.expander("Database Management", expanded=False):
         if not st.session_state.sidebar_authenticated:
