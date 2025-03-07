@@ -1462,6 +1462,7 @@ with st.sidebar:
                             st.error(f"Error processing scanned PDF: {str(e)}")
 
     st.divider()
+    
     # Add PDF merge functionality to the sidebar
     with st.sidebar.expander("PDF Merge Tool", expanded=False):
         st.markdown("### Merge Multiple PDFs")
@@ -1494,7 +1495,8 @@ with st.sidebar:
                     file_name="merged_document.pdf",
                     mime="application/pdf"
                 )
-            
+    st.divider()
+    
     # Database management section with password protection
     with st.expander("Database Management", expanded=False):
         if not st.session_state.sidebar_authenticated:
