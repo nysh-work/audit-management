@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import uuid
 import io
-import pypdf2
+import PyPDF2
 import streamlit as st
 import pandas as pd
 import numpy as np
