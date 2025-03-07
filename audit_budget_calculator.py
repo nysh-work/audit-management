@@ -9,7 +9,6 @@ from pathlib import Path
 import tempfile
 import uuid
 import io
-import PyPDF2
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,6 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import tabula  # For PDF table extraction
 import pytesseract # For OCR
+import PyPDF2 # For merge function
 from pdf2image import convert_from_bytes  # For scanned PDFs
 import streamlit_authenticator as stauth
 import yaml
