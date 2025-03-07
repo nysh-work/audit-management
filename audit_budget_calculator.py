@@ -31,12 +31,12 @@ config = {
         'usernames': {
             'admin': {
                 'name': 'Admin User',
-                'password': 'hashed_password_for_admin',  # Use hashed passwords
+                'password': ' ',  # Use hashed passwords
                 'role': 'admin'
             },
             'auditor': {
                 'name': 'Auditor User',
-                'password': 'hashed_password_for_auditor',  # Use hashed passwords
+                'password': ' ',  # Use hashed passwords
                 'role': 'auditor'
             }
         }
