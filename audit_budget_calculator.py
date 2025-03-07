@@ -1117,7 +1117,7 @@ if 'show_materiality_calculator' not in st.session_state:
 load_data()
 
 # --- SIDEBAR ---
-SIDEBAR_PASSWORD = os.environ.get("SIDEBAR_PASSWORD", "default_password")  # Use environment variable
+SIDEBAR_PASSWORD = os.environ.get("SIDEBAR_PASSWORD", "Athens@425")  # Use environment variable
 
 def toggle_theme():
     if 'theme' not in st.session_state:
