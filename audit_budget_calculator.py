@@ -70,8 +70,7 @@ authenticator = stauth.Authenticate(
 
 # When you want to use the register_user functionality
 authenticator.register_user(
-    form_name="Register User",
-    preauthorized_emails=config['preauthorized']['emails']  # Try this parameter name
+    preauthorized_emails=config['preauthorized']['emails']  # Corrected parameter
 )
 
 # Define the app data directory
