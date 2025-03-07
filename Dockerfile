@@ -20,7 +20,6 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     shared-mime-info \
     fonts-liberation \
-    PyPDF2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
