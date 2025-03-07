@@ -18,9 +18,52 @@ import plotly.graph_objects as go
 import tabula  # For PDF table extraction
 import pytesseract # For OCR
 from pdf2image import convert_from_bytes  # For scanned PDFs
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
 
 # Import the materiality calculator module
 from materiality_calculator import create_materiality_calculator_dialog
+
+# Define user credentials and roles
+config = {
+    'credentials': {
+        'usernames': {
+            'admin': {
+                'name': 'Admin User',
+                'password': 'hashed_password_for_admin',  # Use hashed passwords
+                'role': 'admin'
+            },
+            'auditor': {
+                'name': 'Auditor User',
+                'password': 'hashed_password_for_auditor',  # Use hashed passwords
+                'role': 'auditor'
+            }
+        }
+    },
+    'cookie': {
+        'expiry_days': 30,
+        'key': 'some_signature_key',
+        'name': 'some_cookie_name'
+    },
+    'preauthorized': {
+        'emails': []
+    }
+}
+
+# Hash the passwords
+hashed_passwords = stauth.Hasher(['admin_password', 'auditor_password']).generate()
+config['credentials']['usernames']['admin']['password'] = hashed_passwords[0]
+config['credentials']['usernames']['auditor']['password'] = hashed_passwords[1]
+
+# Initialize the authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config['preauthorized']
+)
 
 # Define the app data directory
 home_dir = str(Path.home())
