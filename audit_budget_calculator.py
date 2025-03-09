@@ -20,9 +20,14 @@ import PyPDF2 # For merge function
 from pdf2image import convert_from_bytes  # For scanned PDFs
 import yaml
 from yaml.loader import SafeLoader
+from PIL import Image
 
-# Import the materiality calculator module
-from materiality_calculator import create_materiality_calculator_dialog
+# Load the image
+icon_path = "streamlit_icon.png"
+icon_image = Image.open(icon_path)
+
+# Set the favicon
+st.set_page_config(page_title="Audit Management Tool", page_icon=icon_image)
 
 # Define the app data directory
 home_dir = str(Path.home())
@@ -42,114 +47,48 @@ logging.basicConfig(
 # Log application start
 logging.info("Application starting...")
 
-# Cloud Storage initialization
-is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-if is_cloud:
-    from cloud_storage import CloudStorageManager
-    BUCKET_NAME = os.environ.get('BUCKET_NAME', 'audit-app-storage')  # Replace with YOUR bucket name.
-    cloud_storage = CloudStorageManager(BUCKET_NAME)
-else:
-    cloud_storage = None  # Initialize to None when not in the cloud
-
-# Define industry sectors and time estimates
-industry_sectors = {
-    "MFG": {"name": "Manufacturing", "risk_factor": 1.0},
-    "RET": {"name": "Retail", "risk_factor": 0.9},
-    "TECH": {"name": "Technology", "risk_factor": 1.2},
-    "FIN": {"name": "Financial Services", "risk_factor": 1.3},
-    "HLTH": {"name": "Healthcare", "risk_factor": 1.1},
-    "CONS": {"name": "Construction", "risk_factor": 1.0},
-    "REAL": {"name": "Real Estate", "risk_factor": 0.9},
-    "HOSP": {"name": "Hospitality", "risk_factor": 0.8},
-    "TRAN": {"name": "Transportation", "risk_factor": 1.0},
-    "ENER": {"name": "Energy", "risk_factor": 1.2},
-    "TELE": {"name": "Telecommunications", "risk_factor": 1.1},
-    "AGRI": {"name": "Agriculture", "risk_factor": 0.9},
-    "PHAR": {"name": "Pharmaceuticals", "risk_factor": 1.3},
-    "MEDIA": {"name": "Media & Entertainment", "risk_factor": 1.0},
-    "EDU": {"name": "Education", "risk_factor": 0.8},
-    "NPO": {"name": "Non-Profit", "risk_factor": 0.7}
-}
-
-# Define detailed time estimates by size and sector
-detailed_time_estimates = {
-    # Small Manufacturing
-    "SMFG": {
-        "planning": 40,
-        "fieldwork": 120,
-        "managerReview": 24,
-        "partnerReview": 16,
-        "total": 200
-    },
-    # Medium Manufacturing
-    "MMFG": {
-        "planning": 60,
-        "fieldwork": 180,
-        "managerReview": 36,
-        "partnerReview": 24,
-        "total": 300
-    },
-    # Large Manufacturing
-    "LMFG": {
-        "planning": 80,
-        "fieldwork": 240,
-        "managerReview": 48,
-        "partnerReview": 32,
-        "total": 400
-    },
-    # Very Large Manufacturing
-    "VLMFG": {
-        "planning": 120,
-        "fieldwork": 360,
-        "managerReview": 72,
-        "partnerReview": 48,
-        "total": 600
-    }
-}
-
-# Default time estimate (fallback)
-default_time_estimate = {
-    "planning": 40,
-    "fieldwork": 120,
-    "managerReview": 24,
-    "partnerReview": 16,
-    "total": 200
-}
-
 # Define the database location (can be changed if needed)
 def get_db_path():
     """Returns the path to the database file."""
-    # Define local paths
     home_dir = str(Path.home())
     app_data_dir = os.path.join(home_dir, '.audit_management_app')
     data_dir = os.path.join(app_data_dir, 'data')
     db_file = os.path.join(data_dir, 'audit_management.db')
-
-    # Create necessary directories
     os.makedirs(data_dir, exist_ok=True)
-
-    # In cloud environment, download the DB file from Cloud Storage if it exists
-    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-    if is_cloud:
-        # Check if DB file exists in Cloud Storage
-        if cloud_storage.file_exists('data/audit_management.db'):
-            # Download the file from Cloud Storage
-            cloud_storage.download_file('data/audit_management.db', db_file)
-
     return db_file
 
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
     try:
-        # Get the database path
         db_path = get_db_path()
         logging.info("Initializing database at %s", db_path)
-
-        # Connect to the database
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
 
-        # Create projects table if it doesn't exist
+        # Create tables if they don't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT NOT NULL,
+                client_code TEXT UNIQUE NOT NULL,
+                business_sector TEXT NOT NULL,
+                latest_turnover REAL NOT NULL,
+                previous_year_turnover REAL NOT NULL,
+                latest_borrowings REAL,
+                previous_year_borrowings REAL,
+                latest_profit_before_tax REAL NOT NULL,
+                previous_year_profit_before_tax REAL NOT NULL,
+                latest_net_worth REAL NOT NULL,
+                previous_year_net_worth REAL NOT NULL,
+                signing_director_1 TEXT NOT NULL,
+                signing_director_2 TEXT NOT NULL,
+                company_secretary TEXT,
+                chief_financial_officer TEXT,
+                managing_director TEXT,
+                signing_director_3 TEXT
+            )
+        ''')
+
         c.execute('''
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,7 +98,6 @@ def init_db():
             )
         ''')
 
-        # Create time_entries table if it doesn't exist
         c.execute('''
             CREATE TABLE IF NOT EXISTS time_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,7 +111,6 @@ def init_db():
             )
         ''')
 
-        # Create team_members table if it doesn't exist
         c.execute('''
             CREATE TABLE IF NOT EXISTS team_members (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,7 +123,6 @@ def init_db():
             )
         ''')
 
-        # Create schedule_entries table if it doesn't exist
         c.execute('''
             CREATE TABLE IF NOT EXISTS schedule_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,18 +139,6 @@ def init_db():
             )
         ''')
 
-        # Create clients table if it doesn't exist
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS clients (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE,
-                contact_details TEXT,
-                industry TEXT,
-                past_engagements TEXT,
-                data TEXT
-            )
-        ''')
-
         conn.commit()
         return conn
     except Exception as e:
@@ -223,11 +147,44 @@ def init_db():
         st.error(error_msg)
         raise
 
+def add_client(client_data):
+    db_path = get_db_path()
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+
+    try:
+        c.execute('''
+            INSERT INTO clients (
+                client_name, client_code, business_sector, latest_turnover, previous_year_turnover,
+                latest_borrowings, previous_year_borrowings, latest_profit_before_tax, previous_year_profit_before_tax,
+                latest_net_worth, previous_year_net_worth, signing_director_1, signing_director_2,
+                company_secretary, chief_financial_officer, managing_director, signing_director_3
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            client_data['client_name'], client_data['client_code'], client_data['business_sector'],
+            client_data['latest_turnover'], client_data['previous_year_turnover'],
+            client_data['latest_borrowings'], client_data['previous_year_borrowings'],
+            client_data['latest_profit_before_tax'], client_data['previous_year_profit_before_tax'],
+            client_data['latest_net_worth'], client_data['previous_year_net_worth'],
+            client_data['signing_director_1'], client_data['signing_director_2'],
+            client_data.get('company_secretary'), client_data.get('chief_financial_officer'),
+            client_data.get('managing_director'), client_data.get('signing_director_3')
+        ))
+
+        conn.commit()
+        return True, "Client added successfully"
+    except sqlite3.IntegrityError as e:
+        return False, f"Error: Client code must be unique. {str(e)}"
+    except Exception as e:
+        return False, f"Error adding client: {str(e)}"
+    finally:
+        conn.close()
+
 def save_projects_to_db():
     """Saves projects from session state to the database."""
-    conn = init_db()  # This now uses the absolute path
+    conn = init_db()
     c = conn.cursor()
-    c.execute("DELETE FROM projects")  # Clear existing data
+    c.execute("DELETE FROM projects")
 
     for name, project_data in st.session_state.projects.items():
         project_json = json.dumps(project_data)
@@ -240,7 +197,7 @@ def save_projects_to_db():
 
 def load_projects_from_db():
     """Loads projects from the database into session state."""
-    conn = init_db()  # This now uses the absolute path
+    conn = init_db()
     c = conn.cursor()
     c.execute("SELECT name, data FROM projects")
     projects = {name: json.loads(data) for name, data in c.fetchall()}
@@ -251,7 +208,7 @@ def save_time_entries_to_db():
     """Saves time entries from session state to the database."""
     conn = init_db()
     c = conn.cursor()
-    c.execute("DELETE FROM time_entries")  # Clear existing data
+    c.execute("DELETE FROM time_entries")
 
     for entry in st.session_state.time_entries:
         c.execute("""
@@ -272,7 +229,7 @@ def save_time_entries_to_db():
 
 def load_time_entries_from_db():
     """Loads time entries from the database into session state."""
-    conn = init_db()  # This now uses the absolute path
+    conn = init_db()
     c = conn.cursor()
     c.execute("SELECT project, resource, phase, date, hours, description, entry_time FROM time_entries")
     time_entries = [
@@ -313,16 +270,13 @@ def save_team_members_to_db():
     """Saves team members from session state to the database."""
     conn = init_db()
     c = conn.cursor()
-    c.execute("DELETE FROM team_members")  # Clear existing data
+    c.execute("DELETE FROM team_members")
 
     for name, member in st.session_state.team_members.items():
         skills = ','.join(member.get('skills', []))
-        # Extract core fields
         role = member.get('role', '')
         availability_hours = member.get('availability_hours', 40.0)
         hourly_rate = member.get('hourly_rate', 0.0)
-
-        # Store additional data as JSON
         core_fields = {'name', 'role', 'skills', 'availability_hours', 'hourly_rate'}
         additional_data = {k: v for k, v in member.items() if k not in core_fields}
         data_json = json.dumps(additional_data) if additional_data else None
@@ -366,7 +320,7 @@ def save_schedule_entries_to_db():
     """Saves schedule entries from session state to the database."""
     conn = init_db()
     c = conn.cursor()
-    c.execute("DELETE FROM schedule_entries")  # Clear existing data
+    c.execute("DELETE FROM schedule_entries")
 
     for entry in st.session_state.schedule_entries:
         c.execute("""
@@ -394,12 +348,26 @@ def save_clients_to_db():
     """Saves clients from session state to the database."""
     conn = init_db()
     c = conn.cursor()
-    c.execute("DELETE FROM clients")  # Clear existing data
+    c.execute("DELETE FROM clients")
 
-    for name, client_data in st.session_state.clients.items():
-        client_json = json.dumps(client_data)
-        c.execute("INSERT INTO clients (name, contact_details, industry, past_engagements, data) VALUES (?, ?, ?, ?, ?)",
-                  (name, client_data.get('contact_details', ''), client_data.get('industry', ''), client_data.get('past_engagements', ''), client_json))
+    for client_name, client_data in st.session_state.clients.items():
+        c.execute('''
+            INSERT INTO clients (
+                client_name, client_code, business_sector, latest_turnover, previous_year_turnover,
+                latest_borrowings, previous_year_borrowings, latest_profit_before_tax, previous_year_profit_before_tax,
+                latest_net_worth, previous_year_net_worth, signing_director_1, signing_director_2,
+                company_secretary, chief_financial_officer, managing_director, signing_director_3
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            client_data['client_name'], client_data['client_code'], client_data['business_sector'],
+            client_data['latest_turnover'], client_data['previous_year_turnover'],
+            client_data['latest_borrowings'], client_data['previous_year_borrowings'],
+            client_data['latest_profit_before_tax'], client_data['previous_year_profit_before_tax'],
+            client_data['latest_net_worth'], client_data['previous_year_net_worth'],
+            client_data['signing_director_1'], client_data['signing_director_2'],
+            client_data.get('company_secretary'), client_data.get('chief_financial_officer'),
+            client_data.get('managing_director'), client_data.get('signing_director_3')
+        ))
 
     conn.commit()
     conn.close()
@@ -408,12 +376,37 @@ def load_clients_from_db():
     """Loads clients from the database into session state."""
     conn = init_db()
     c = conn.cursor()
-    c.execute("SELECT name, contact_details, industry, past_engagements, data FROM clients")
-    clients = {name: json.loads(data) for name, contact_details, industry, past_engagements, data in c.fetchall()}
+    c.execute('''
+        SELECT client_name, client_code, business_sector, latest_turnover, previous_year_turnover,
+               latest_borrowings, previous_year_borrowings, latest_profit_before_tax, previous_year_profit_before_tax,
+               latest_net_worth, previous_year_net_worth, signing_director_1, signing_director_2,
+               company_secretary, chief_financial_officer, managing_director, signing_director_3
+        FROM clients
+    ''')
+    clients = {}
+    for row in c.fetchall():
+        client_data = {
+            'client_name': row[0],
+            'client_code': row[1],
+            'business_sector': row[2],
+            'latest_turnover': row[3],
+            'previous_year_turnover': row[4],
+            'latest_borrowings': row[5],
+            'previous_year_borrowings': row[6],
+            'latest_profit_before_tax': row[7],
+            'previous_year_profit_before_tax': row[8],
+            'latest_net_worth': row[9],
+            'previous_year_net_worth': row[10],
+            'signing_director_1': row[11],
+            'signing_director_2': row[12],
+            'company_secretary': row[13],
+            'chief_financial_officer': row[14],
+            'managing_director': row[15],
+            'signing_director_3': row[16]
+        }
+        clients[row[0]] = client_data
     conn.close()
     return clients
-
-# --- DATA LOADING AND SAVING (Corrected Order) ---
 
 def save_data():
     """Saves project and time entry data to the database and backup files."""
@@ -423,338 +416,62 @@ def save_data():
     save_schedule_entries_to_db()
     save_clients_to_db()
 
-    # Define paths
-    home_dir = str(Path.home())
-    app_data_dir = os.path.join(home_dir, '.audit_management_app')
-    data_dir = os.path.join(app_data_dir, 'data')
-
-    # Create necessary directories
-    os.makedirs(data_dir, exist_ok=True)
-
-    # Get the database file path
-    db_file = get_db_path()
-
-    # In cloud environment, upload the DB file to Cloud Storage
-    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-    if is_cloud and os.path.exists(db_file) and 'cloud_storage' in globals():
-        cloud_storage.upload_file(db_file, 'data/audit_management.db')
-
-        # Also save projects and time entries directly to Cloud Storage as backup
-        try:
-            # Save projects to a temp file and upload
-            projects_file = os.path.join(data_dir, 'projects.json')
-            with open(projects_file, 'w') as f:
-                json.dump(st.session_state.projects, f)
-            cloud_storage.upload_file(projects_file, 'data/projects.json')
-
-            # Save time entries to a temp file and upload
-            time_entries_file = os.path.join(data_dir, 'time_entries.csv')
-            df = pd.DataFrame(st.session_state.time_entries)
-            if not df.empty:
-                df.to_csv(time_entries_file, index=False)
-                cloud_storage.upload_file(time_entries_file, 'data/time_entries.csv')
-        except Exception as e:
-            logging.error("Error saving data to cloud storage: %s", e)
-            st.error("Error saving data to files: %s", e)
-
-    # Backup to local files (for local development or extra safety)
-    try:
-        projects_file = os.path.join(data_dir, 'projects.json')
-        with open(projects_file, 'w') as f:
-            json.dump(st.session_state.projects, f)
-
-        time_entries_file = os.path.join(data_dir, 'time_entries.csv')
-        df = pd.DataFrame(st.session_state.time_entries)
-        if not df.empty:
-            df.to_csv(time_entries_file, index=False)
-    except Exception as e:
-        st.error("Error saving data to files: %s", e)
-
 def load_data():
     """Loads project and time entry data from the database, with fallback to files."""
     try:
-        # Import necessary modules
-        import os
-        from pathlib import Path
-
-        # Define the app data paths
-        home_dir = str(Path.home())
-        app_data_dir = os.path.join(home_dir, '.audit_management_app')
-        data_dir = os.path.join(app_data_dir, 'data')
-
-        # Load from database
         st.session_state.projects = load_projects_from_db()
         st.session_state.time_entries = load_time_entries_from_db()
         st.session_state.team_members = load_team_members_from_db()
         st.session_state.schedule_entries = load_schedule_entries_from_db()
         st.session_state.clients = load_clients_from_db()
-
-        # Fallback to files if database is empty (for backward compatibility)
-        projects_file = os.path.join(data_dir, 'projects.json')
-        time_entries_file = os.path.join(data_dir, 'time_entries.csv')
-
-        if not st.session_state.projects and os.path.exists(projects_file):
-            with open(projects_file, 'r') as f:
-                st.session_state.projects = json.load(f)
-            save_projects_to_db()  # Save loaded data to DB
-
-        if not st.session_state.time_entries and os.path.exists(time_entries_file):
-            df = pd.read_csv(time_entries_file)
-            st.session_state.time_entries = df.to_dict('records')
-            save_time_entries_to_db()  # Save loaded data to DB
-
-        # Log the loading operation
-        logging.info("Data loaded successfully. Projects: %s, Time entries: %s, Team members: %s, Schedule entries: %s",
-                    len(st.session_state.projects), len(st.session_state.time_entries),
-                    len(st.session_state.team_members), len(st.session_state.schedule_entries))
-
     except Exception as e:
         error_msg = f"Error loading data: {str(e)}"
         logging.error(error_msg)
         st.error(error_msg)
-
-        # Initialize with empty data if loading fails
         if 'projects' not in st.session_state:
             st.session_state.projects = {}
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
-def backup_database(event=None, context=None):
-    """Creates a timestamped backup of the database."""
-    # Check if we're in the cloud environment
-    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
+# Initialize session state
+if 'projects' not in st.session_state:
+    st.session_state.projects = {}
+if 'time_entries' not in st.session_state:
+    st.session_state.time_entries = []
+if 'current_project' not in st.session_state:
+    st.session_state.current_project = {}
+if 'team_members' not in st.session_state:
+    st.session_state.team_members = {}
+if 'schedule_entries' not in st.session_state:
+    st.session_state.schedule_entries = []
+if 'clients' not in st.session_state:
+    st.session_state.clients = {}
+if 'sidebar_authenticated' not in st.session_state:
+    st.session_state.sidebar_authenticated = False
+if 'sidebar_password_attempt' not in st.session_state:
+    st.session_state.sidebar_password_attempt = False
+if 'show_materiality_calculator' not in st.session_state:
+    st.session_state.show_materiality_calculator = False
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'dark'
 
-    # Define paths for local backup
-    home_dir = str(Path.home())
-    app_data_dir = os.path.join(home_dir, '.audit_management_app')
-    data_dir = os.path.join(app_data_dir, 'data')
-    backups_dir = os.path.join(app_data_dir, 'backups')
+# Load initial data
+load_data()
 
-    # Create backups directory if it doesn't exist
-    os.makedirs(backups_dir, exist_ok=True)
+# Function to create a professional header
+def create_header():
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        st.image(icon_image, width=60)
+    with col2:
+        st.markdown("""
+            <h1 style="color:#F0F2F8; margin-bottom:0; font-size:2.2rem;">Audit Management Tool</h1>
+            <p style="color:#A3B1D7; margin-top:0; font-size:1.1rem;">Varma & Varma Chartered Accountants</p>
+        """, unsafe_allow_html=True)
+    st.markdown("<hr style='margin-top:0; margin-bottom:30px; border-color:#2E344D;'>", unsafe_allow_html=True)
 
-    # Create timestamp for backup filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # If we're in the cloud, backup to Cloud Storage
-    if is_cloud and 'cloud_storage' in globals():
-        try:
-            # Reference to the main database blob
-            db_blob = cloud_storage.bucket.blob('data/audit_management.db')
-
-            if db_blob.exists():
-                # Create the backup blob name
-                backup_blob_name = f"backups/audit_management_{timestamp}.db"
-
-                # Copy the blob to the backup location
-                cloud_storage.bucket.copy_blob(db_blob, cloud_storage.bucket, backup_blob_name)
-
-                # Also backup projects.json and time_entries.csv if they exist
-                projects_blob = cloud_storage.bucket.blob('data/projects.json')
-                if projects_blob.exists():
-                    cloud_storage.bucket.copy_blob(
-                        projects_blob,
-                        cloud_storage.bucket,
-                        f"backups/projects_{timestamp}.json"
-                    )
-
-                entries_blob = cloud_storage.bucket.blob('data/time_entries.csv')
-                if entries_blob.exists():
-                    cloud_storage.bucket.copy_blob(
-                        entries_blob,
-                        cloud_storage.bucket,
-                        f"backups/time_entries_{timestamp}.csv"
-                    )
-
-                return True, f"Cloud backup created successfully: {backup_blob_name}"
-            else:
-                return False, "Database file not found in cloud storage."
-        except Exception as e:
-            return False, "Cloud backup failed: %s" % str(e)
-
-    # For local environment, use the existing code
-    db_file = os.path.join(data_dir, 'audit_management.db')
-
-    # Check if database exists
-    if not os.path.exists(db_file):
-        return False, "Database file not found."
-
-    backup_file = os.path.join(backups_dir, f"audit_management_{timestamp}.db")
-
-    try:
-        # Copy the database file
-        shutil.copy2(db_file, backup_file)
-
-        # Also backup the JSON and CSV files if they exist
-        json_file = os.path.join(data_dir, 'projects.json')
-        if os.path.exists(json_file):
-            shutil.copy2(json_file, os.path.join(backups_dir, f"projects_{timestamp}.json"))
-
-        csv_file = os.path.join(data_dir, 'time_entries.csv')
-        if os.path.exists(csv_file):
-            shutil.copy2(csv_file, os.path.join(backups_dir, f"time_entries_{timestamp}.csv"))
-
-        return True, f"Local backup created successfully: audit_management_{timestamp}.db"
-    except Exception as e:
-        return False, "Local backup failed: %s" % str(e)
-
-def restore_database(backup_file_or_blob):
-    """Restores the database from a backup file or blob."""
-    # Check if we're in the cloud environment
-    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-
-    if is_cloud and 'cloud_storage' in globals():
-        try:
-            # Create a backup of the current database first
-            backup_database()
-
-            # Assume backup_file_or_blob is a blob name in Cloud Storage
-            backup_blob = cloud_storage.bucket.blob(backup_file_or_blob)
-
-            if not backup_blob.exists():
-                return False, "Backup file not found in cloud storage."
-
-            # Copy the backup over the current database
-            cloud_storage.bucket.copy_blob(
-                backup_blob,
-                cloud_storage.bucket,
-                'data/audit_management.db'
-            )
-
-            # Extract the timestamp from the backup filename
-            # Format: backups/audit_management_YYYYMMDD_HHMMSS.db
-            filename = os.path.basename(backup_file_or_blob)
-            timestamp = filename.split('audit_management_')[1].split('.db')[0]
-
-            # Also restore projects.json and time_entries.csv if they exist
-            projects_backup = cloud_storage.bucket.blob(f"backups/projects_{timestamp}.json")
-            if projects_backup.exists():
-                try:
-                    cloud_storage.bucket.copy_blob(
-                        projects_backup,
-                        cloud_storage.bucket,
-                        'data/projects.json'
-                    )
-                except Exception as e:
-                    logging.error(f"Error restoring projects.json: {e}")
-
-            entries_backup = cloud_storage.bucket.blob(f"backups/time_entries_{timestamp}.csv")
-            if entries_backup.exists():
-                try:
-                    cloud_storage.bucket.copy_blob(
-                        entries_backup,
-                        cloud_storage.bucket,
-                        'data/time_entries.csv'
-                    )
-                except Exception as e:
-                    logging.error(f"Error restoring time_entries.csv: {e}")
-
-
-            # Force a reload of the database
-            db_path = get_db_path()
-            cloud_storage.download_file('data/audit_management.db', db_path)
-
-            return True, "Database restored successfully from cloud backup. Please refresh the page."
-        except Exception as e:
-                    return False, "Cloud restore failed: %s" % str(e)
-
-    # For local environment, use the existing code
-    home_dir = str(Path.home())
-    app_data_dir = os.path.join(home_dir, '.audit_management_app')
-    data_dir = os.path.join(app_data_dir, 'data')
-
-    # Target database file
-    db_file = os.path.join(data_dir, 'audit_management.db')
-
-    try:
-        # Create a backup of the current database before restoring
-        if os.path.exists(db_file):
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            shutil.copy2(db_file, os.path.join(data_dir, f"audit_management_pre_restore_{timestamp}.db"))
-
-        # Copy the backup file to the database location
-        shutil.copy2(backup_file_or_blob, db_file)
-
-        return True, "Database restored successfully. Please restart the application."
-    except Exception as e:
-        return False, "Local restore failed: %s" % str(e)
-
-def list_backups():
-    """Lists all available database backups."""
-    # Check if we're in the cloud environment
-    is_cloud = os.environ.get('CLOUD_RUN_SERVICE', False)
-
-    if is_cloud and 'cloud_storage' in globals():
-        try:
-            # List all backup blobs in cloud storage
-            blobs = list(cloud_storage.client.list_blobs(
-                cloud_storage.bucket_name,
-                prefix="backups/audit_management_"
-            ))
-
-            # Sort by creation time (most recent first)
-            blobs.sort(key=lambda x: x.time_created, reverse=True)
-
-            backups = []
-            for blob in blobs:
-                backups.append({
-                    "filename": os.path.basename(blob.name),
-                    "path": blob.name,  # Store the blob name as the path
-                    "modified": blob.time_created.strftime("%Y-%m-%d %H:%M:%S"),
-                    "size_mb": round(blob.size / (1024 * 1024), 2)
-                })
-
-            return backups
-        except Exception as e:
-            logging.error("Error listing cloud backups: %s", e)
-            return []
-
-    # For local environment, use the existing code
-    home_dir = str(Path.home())
-    backups_dir = os.path.join(home_dir, '.audit_management_app', 'backups')
-
-    # Check if backups directory exists
-    if not os.path.exists(backups_dir):
-        return []
-
-    # Get all database backup files
-    backup_files = glob.glob(os.path.join(backups_dir, "audit_management_*.db"))
-
-    # Sort by modification time (most recent first)
-    backup_files.sort(key=os.path.getmtime, reverse=True)
-
-    # Format the list for display
-    backups = []
-    for file in backup_files:
-        filename = os.path.basename(file)
-        mod_time = datetime.fromtimestamp(os.path.getmtime(file)).strftime("%Y-%m-%d %H:%M:%S")
-        size_mb = os.path.getsize(file) / (1024 * 1024)
-        backups.append({
-            "filename": filename,
-            "path": file,
-            "modified": mod_time,
-            "size_mb": round(size_mb, 2)
-        })
-
-    return backups
-
-# --- VISUAL ENHANCEMENTS ---
-
-# Define color palette
-COLOR_PRIMARY = "#4F6DF5"       # A softer blue as primary
-COLOR_SECONDARY = "#05CE91"     # A teal green for success/action
-COLOR_WARNING = "#FFA941"       # A warmer orange for warnings
-COLOR_DANGER = "#F55252"        # A slightly softer red
-COLOR_BACKGROUND = "#121726"    # A blue-tinted dark background
-COLOR_CARD_BACKGROUND = "#1E2235"  # Slightly lighter for cards
-COLOR_TEXT = "#F0F2F8"          # Off-white text for better readability
-COLOR_TEXT_MUTED = "#A3B1D7"    # Blue-tinted gray for secondary text
-
-# Function to apply custom styling
+# Apply visual enhancements
 def enhance_visual_style():
-    """Apply enhanced visual styles to the Streamlit app"""
-
-    # Apply base theme
     st.markdown("""
     <style>
         /* Main background and text colors */
@@ -762,55 +479,46 @@ def enhance_visual_style():
             background-color: #121726;
             color: #F0F2F8;
         }
-
         /* Headers */
         h1, h2, h3, h4, h5, h6 {
             color: #F0F2F8 !important;
             font-family: 'Inter', 'Segoe UI', sans-serif !important;
             font-weight: 600 !important;
         }
-
         [data-testid="stMetricLabel"] {
             font-size: 14px !important;
             color: #A3B1D7 !important;
         }
-
         /* Metric delta colors */
         [data-testid="stMetricDelta"] svg {
             stroke: #05CE91 !important;
         }
-
         [data-testid="stMetricDelta"] [data-testid="stMetricDelta"] svg {
             stroke: #F55252 !important;
         }
-
         /* Tables */
         .stDataFrame {
             border-radius: 8px !important;
             overflow: hidden !important;
         }
-
         .stDataFrame table {
             border: 1px solid #2E344D !important;
         }
-
         .stDataFrame th {
             background-color: #222741 !important;
             color: #F0F2F8 !important;
             font-weight: 600 !important;
             border-bottom: 1px solid #2E344D !important;
-            padding: 12px 24px !important;
+            padding: 12px 24px ! important;
             font-size: 14px !important;
         }
-
         .stDataFrame td {
             color: #F0F2F8 !important;
             border-bottom: 1px solid #222741 !important;
             background-color: #1E2235 !important;
-            padding: 10px 24px !important;
+            padding: 10px 24px ! important;
             font-size: 14px !important;
         }
-
         /* Buttons */
         .stButton button {
             background-color: #4F6DF5 !important;
@@ -822,13 +530,11 @@ def enhance_visual_style():
             transition: all 0.2s ease !important;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
         }
-
         .stButton button:hover {
             background-color: #3A56CC !important;
             transform: translateY(-1px) !important;
             box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
         }
-
         /* Input fields */
         .stTextInput input, .stNumberInput input, .stDateInput input {
             background-color: #1A1F33 !important;
@@ -837,12 +543,10 @@ def enhance_visual_style():
             border-radius: 6px !important;
             padding: 10px 12px !important;
         }
-
         .stTextInput input:focus, .stNumberInput input:focus, .stDateInput input:focus {
             border-color: #4F6DF5 !important;
             box-shadow: 0 0 0 2px rgba(79, 109, 245, 0.2) !important;
         }
-
         /* Select boxes */
         .stSelectbox > div > div {
             background-color: #1A1F33 !important;
@@ -850,31 +554,26 @@ def enhance_visual_style():
             border: 1px solid #2E344D !important;
             border-radius: 6px !important;
         }
-
         /* Dropdowns */
         .stSelectbox > div > div > div {
             background-color: #1A1F33 !important;
             color: #F0F2F8 !important;
         }
-
         /* Tabs */
         .stTabs [data-baseweb="tab-list"] {
             background-color: #1A1F33 !important;
             border-radius: 8px !important;
             padding: 5px !important;
         }
-
         .stTabs [data-baseweb="tab"] {
             color: #A3B1D7 !important;
             border-radius: 6px !important;
             padding: 8px 16px !important;
         }
-
         .stTabs [aria-selected="true"] {
             background-color: #4F6DF5 !important;
             color: white !important;
         }
-
         /* Expanders */
         .streamlit-expanderHeader {
             background-color: #1E2235 !important;
@@ -883,39 +582,32 @@ def enhance_visual_style():
             padding: 12px 15px !important;
             font-weight: 500 !important;
         }
-
         .streamlit-expanderContent {
             background-color: #1A1F33 !important;
             border: 1px solid #2E344D !important;
             border-radius: 0 0 6px 6px !important;
             padding: 15px !important;
         }
-
         /* Checkboxes */
         .stCheckbox > div > div > div {
             background-color: #4F6DF5 !important;
         }
-
         /* Radio buttons */
         .stRadio > div {
             background-color: transparent !important;
         }
-
         .stRadio label {
             color: #F0F2F8 !important;
             padding: 4px 8px !important;
         }
-
         /* Sidebar */
         [data-testid="stSidebar"] {
             background-color: #1A1F33 !important;
             border-right: 1px solid #2E344D !important;
         }
-
         [data-testid="stSidebar"] hr {
             border-color: #2E344D !important;
         }
-
         /* Info, warning and error boxes */
         .stInfo, .stSuccess {
             background-color: rgba(79, 109, 245, 0.1) !important;
@@ -924,7 +616,6 @@ def enhance_visual_style():
             padding: 15px !important;
             border-radius: 0 6px 6px 0 !important;
         }
-
         .stWarning {
             background-color: rgba(255, 169, 65, 0.1) !important;
             color: #F0F2F8 !important;
@@ -932,7 +623,6 @@ def enhance_visual_style():
             padding: 15px !important;
             border-radius: 0 6px 6px 0 !important;
         }
-
         .stError {
             background-color: rgba(245, 82, 82, 0.1) !important;
             color: #F0F2F8 !important;
@@ -940,35 +630,29 @@ def enhance_visual_style():
             padding: 15px !important;
             border-radius: 0 6px 6px 0 !important;
         }
-
         /* Slider */
         .stSlider div[data-baseweb="slider"] div {
             background-color: #4F6DF5 !important;
         }
-
         /* Pagination buttons */
         .stPagination button {
             background-color: #1E2235 !important;
             color: #F0F2F8 !important;
             border: 1px solid #2E344D !important;
         }
-
         .stPagination button:hover {
             background-color: #4F6DF5 !important;
         }
-
         /* Better spacing */
         .block-container {
             padding-top: 2rem !important;
             padding-bottom: 3rem !important;
             max-width: 1200px !important;
         }
-
         /* Progress bar */
         .stProgress > div > div > div > div {
             background-color: #4F6DF5 !important;
         }
-
         /* Text areas */
         .stTextArea textarea {
             background-color: #1A1F33 !important;
@@ -976,12 +660,10 @@ def enhance_visual_style():
             border: 1px solid #2E344D !important;
             border-radius: 6px !important;
         }
-
         .stTextArea textarea:focus {
             border-color: #4F6DF5 !important;
             box-shadow: 0 0 0 2px rgba(79, 109, 245, 0.2) !important;
         }
-
         /* File uploader */
         .stFileUploader {
             background-color: #1A1F33 !important;
@@ -989,7 +671,6 @@ def enhance_visual_style():
             border-radius: 6px !important;
             padding: 15px !important;
         }
-
         .uploadedFile {
             background-color: #1A1F33 !important;
             color: #F0F2F8 !important;
@@ -999,10 +680,13 @@ def enhance_visual_style():
     </style>
     """, unsafe_allow_html=True)
 
-    # Add Google Fonts for better typography
     st.markdown("""
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
+
+# Load the image
+icon_path = "streamlit_icon.png"
+icon_image = Image.open(icon_path)
 
 # Function to create a professional header
 def create_header():
@@ -1010,13 +694,8 @@ def create_header():
     col1, col2 = st.columns([1, 5])
 
     with col1:
-        # Display a default placeholder logo using CSS
-        st.markdown("""
-        <div style="background-color:#4F8DF5; width:60px; height:60px; border-radius:50%; display:flex;
-        justify-content:center; align-items:center; color:white; font-weight:bold; font-size:28px;">
-        V
-        </div>
-        """, unsafe_allow_html=True)
+        # Display the logo image
+        st.image(icon_image, width=60)
 
     with col2:
         st.markdown("""
@@ -1141,6 +820,8 @@ if 'projects' not in st.session_state:
     st.session_state.projects = {}
 if 'time_entries' not in st.session_state:
     st.session_state.time_entries = []
+if 'current_project' not in st.session_state:
+    st.session_state.current_project = {}
 if 'team_members' not in st.session_state:
     st.session_state.team_members = {}
 if 'schedule_entries' not in st.session_state:
@@ -1153,6 +834,8 @@ if 'sidebar_password_attempt' not in st.session_state:
     st.session_state.sidebar_password_attempt = False
 if 'show_materiality_calculator' not in st.session_state:
     st.session_state.show_materiality_calculator = False
+if 'theme' not in st.session_state:  # Example for theme switching (optional)
+    st.session_state.theme = 'dark'
 
 # Load initial data
 load_data()
@@ -1501,9 +1184,7 @@ with st.sidebar:
                             st.error("OCR libraries not available. Please install pdf2image and pytesseract.")
                         except Exception as e:
                             st.error(f"Error processing scanned PDF: {str(e)}")
-
-    st.divider()
-    
+                            
     # Add PDF merge functionality to the sidebar
     with st.sidebar.expander("PDF Merge Tool", expanded=False):
         st.markdown("### Merge Multiple PDFs")
@@ -1612,599 +1293,1460 @@ enhance_visual_style()
 create_header()
 
 
-# --- Project Management ---
-section_header("Project Management", "💼")
+# --- DEFINE TABS (OUTSIDE OF ANY FUNCTION) ---
+tab_dashboard, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Dashboard", "Budget Calculator", "Time Tracking", "Project Reports", "Team Reports", "Client Management"
+])
 
-with st.expander("Add New Project", expanded=False):
-    with st.form(key='new_project_form'):
-        project_name = st.text_input("Project Name", key='new_project_name')
-        client_name = st.text_input("Client Name")
-        industry_sector = st.selectbox("Industry Sector", options=list(industry_sectors.keys()), format_func=lambda x: industry_sectors[x]['name'])
-        project_size = st.selectbox("Project Size", options=["Small", "Medium", "Large", "Very Large"])
-        start_date = st.date_input("Start Date")
-        end_date = st.date_input("End Date")
-        total_budget = st.number_input("Total Budget", min_value=0.0)
-        
-        # Additional fields using a dictionary
-        additional_fields = {}
-        additional_fields['engagement_letter_signed'] = st.checkbox("Engagement Letter Signed")
-        additional_fields['internal_approval'] = st.selectbox("Internal Approval Status", ["Pending", "Approved", "Rejected"])
-        additional_fields['notes'] = st.text_area("Additional Notes")
+# --- DASHBOARD FUNCTION (Content for the Dashboard Tab) ---
 
-        submit_button = st.form_submit_button("Add Project")
+def create_dashboard():
+    """Creates the content for the dashboard tab."""
 
-        if submit_button:
-            if project_name:
-                # Combine core project data and additional fields
-                project_data = {
-                    'client_name': client_name,
-                    'industry_sector': industry_sector,
-                    'project_size': project_size,
-                    'start_date': start_date.strftime("%Y-%m-%d") if start_date else None,
-                    'end_date': end_date.strftime("%Y-%m-%d") if end_date else None,
-                    'total_budget': total_budget,
-                    'creation_date': datetime.now().strftime("%Y-%m-%d"),  # Capture creation date
-                    **additional_fields  # Add the additional fields
-                }
+    st.markdown("### Dashboard")
+    st.markdown("Overview of all audit projects and team activities.")
 
-                st.session_state.projects[project_name] = project_data
-                save_data()  # Save immediately
-                st.success(f"Project '{project_name}' added successfully!")
-                st.rerun()
-            else:
-                st.error("Project name is required.")
+    # Check if projects exist
+    if not st.session_state.projects:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+        return  # Exit early if no projects
 
-# --- Project List and Editing ---
-if st.session_state.projects:
-    st.subheader("Existing Projects")
+    # Summary metrics
+    projects_count = len(st.session_state.projects)
+    total_planned_hours = sum(project.get('total_hours', 0) for project in st.session_state.projects.values())
+    total_actual_hours = sum(project.get('actual_hours', {}).get('total', 0) for project in st.session_state.projects.values())
 
-    # Create a list for the table, including the creation date
-    project_list = []
-    for name, data in st.session_state.projects.items():
-        # Ensure dates are strings (for display and sorting)
-        start_date_str = data.get('start_date')
-        end_date_str = data.get('end_date')
-        creation_date_str = data.get('creation_date', '')  # Default to empty string if not found
-
-        project_list.append({
-            "Project Name": name,
-            "Client": data.get('client_name', ''),
-            "Industry": industry_sectors.get(data.get('industry_sector'), {}).get('name', 'N/A'),
-            "Size": data.get('project_size', ''),
-            "Start Date": start_date_str,
-            "End Date": end_date_str,
-            "Budget": data.get('total_budget', 0),
-            "Creation Date": creation_date_str
-        })
-
-    df = pd.DataFrame(project_list)
-    if not df.empty:
-      df = df.sort_values(by="Creation Date", ascending=False) # Sort by creation date.
-      st.dataframe(df, hide_index=True) #hiding the index makes it look nicer
-    else:
-      st.info("No projects found.")
+    # Team members (deduplicated using a set)
+    all_team_members = set()
+    for project in st.session_state.projects.values():
+        if 'team_members' in project:
+            all_team_members.update(member for member in project['team_members'].values() if member)
 
 
-    # Project editing and deletion
-    selected_project = st.selectbox("Select Project to Edit/Delete", list(st.session_state.projects.keys()))
+    # Create metrics layout
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Summary Metrics</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
-      if st.button("Edit Project"):
-          st.session_state.edit_project = selected_project
+        st.metric("Total Projects", f"{projects_count}")
     with col2:
-      if st.button("Delete Project"):
-          st.session_state.delete_project = selected_project
-
-    # Project deletion
-    if 'delete_project' in st.session_state:
-        project_to_delete = st.session_state.delete_project
-        del st.session_state.projects[project_to_delete]
-
-        # Delete related time entries
-        st.session_state.time_entries = [entry for entry in st.session_state.time_entries if entry['project'] != project_to_delete]
-
-        # Delete related schedule entries
-        st.session_state.schedule_entries = [entry for entry in st.session_state.schedule_entries if entry['project'] != project_to_delete]
-
-        save_data()
-        del st.session_state.delete_project
-        st.success(f"Project '{project_to_delete}' and related entries deleted!")
-        st.rerun()
-    # Project editing form.  This is *outside* the if st.button block
-    if 'edit_project' in st.session_state:
-        project_to_edit = st.session_state.edit_project
-        project_data = st.session_state.projects[project_to_edit]
-
-        with st.form(key='edit_project_form'):
-            st.subheader(f"Editing Project: {project_to_edit}")
-            new_project_name = st.text_input("Project Name", value=project_to_edit, key='edit_project_name')
-            client_name = st.text_input("Client Name", value=project_data.get('client_name', ''))
-            industry_sector = st.selectbox("Industry Sector", options=list(industry_sectors.keys()), format_func=lambda x: industry_sectors[x]['name'], index=list(industry_sectors.keys()).index(project_data.get('industry_sector')) if project_data.get('industry_sector') in industry_sectors else 0)
-            project_size = st.selectbox("Project Size", options=["Small", "Medium", "Large", "Very Large"], index=["Small", "Medium", "Large", "Very Large"].index(project_data.get('project_size')) if project_data.get('project_size') in ["Small", "Medium", "Large", "Very Large"] else 0)
-            start_date = st.date_input("Start Date", value=datetime.strptime(project_data.get('start_date'), "%Y-%m-%d") if project_data.get('start_date') else None)
-            end_date = st.date_input("End Date", value=datetime.strptime(project_data.get('end_date'), "%Y-%m-%d") if project_data.get('end_date') else None)
-            total_budget = st.number_input("Total Budget", min_value=0.0, value=project_data.get('total_budget', 0.0))
-
-            # Edit additional fields
-            additional_fields = {}
-            additional_fields['engagement_letter_signed'] = st.checkbox("Engagement Letter Signed", value=project_data.get('engagement_letter_signed', False))
-            additional_fields['internal_approval'] = st.selectbox("Internal Approval Status", ["Pending", "Approved", "Rejected"], index=["Pending", "Approved", "Rejected"].index(project_data.get('internal_approval')) if project_data.get('internal_approval') in ["Pending", "Approved", "Rejected"] else 0)
-            additional_fields['notes'] = st.text_area("Additional Notes", value=project_data.get('notes', ''))
+        st.metric("Total Team Members", f"{len(all_team_members)}")
+    with col3:
+        st.metric("Total Planned Hours", f"{total_planned_hours}")
+    with col4:
+        completion_pct = round((total_actual_hours / total_planned_hours * 100) if total_planned_hours else 0)
+        st.metric("Overall Completion", f"{completion_pct}%", f"{total_actual_hours} hours")
 
 
-            update_button = st.form_submit_button("Update Project")
+    # Project status overview
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Project Status Overview</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
-            if update_button:
-                # Remove the old project entry if the name has changed
-                if new_project_name != project_to_edit:
-                    del st.session_state.projects[project_to_edit]
-                    # Update time entries and schedule entries to the new project name
-                    for entry in st.session_state.time_entries:
-                        if entry['project'] == project_to_edit:
-                            entry['project'] = new_project_name
-                    for entry in st.session_state.schedule_entries:
-                         if entry['project'] == project_to_edit:
-                            entry['project'] = new_project_name
+    # Create project status dataframe (using a list comprehension)
+    project_status = [
+        {
+            "Project": name,
+            "Category": project.get('audit_category_display', ''),
+            "Industry": project.get('industry_name', ''),
+            "Planned Hours": project.get('total_hours', 0),
+            "Actual Hours": project.get('actual_hours', {}).get('total', 0),
+            "Completion": f"{round((project.get('actual_hours', {}).get('total', 0) / project.get('total_hours', 1) * 100),2) if project.get('total_hours', 1) else 0}%",  # Avoid division by zero
+            "Status": "Completed" if project.get('actual_hours', {}).get('total', 0) >= project.get('total_hours', 0) * 0.95 else "In Progress" if project.get('actual_hours', {}).get('total', 0) > 0 else "Not Started"
+        }
+        for name, project in st.session_state.projects.items()
+    ]
 
-
-                # Update the project data
-                updated_project_data = {
-                    'client_name': client_name,
-                    'industry_sector': industry_sector,
-                    'project_size': project_size,
-                    'start_date': start_date.strftime("%Y-%m-%d") if start_date else None,
-                    'end_date': end_date.strftime("%Y-%m-%d") if end_date else None,
-                    'total_budget': total_budget,
-                    'creation_date': project_data.get('creation_date', datetime.now().strftime("%Y-%m-%d")), #keep the original creation date
-                    **additional_fields  # Include the updated additional fields
-                }
-                st.session_state.projects[new_project_name] = updated_project_data
-                save_data()
-                del st.session_state.edit_project  # Clear the edit state
-                st.success(f"Project '{new_project_name}' updated successfully!")
-                st.rerun()
+    status_df = pd.DataFrame(project_status)
+    st.dataframe(status_df, hide_index=True, use_container_width=True)
 
 
-# --- Time Tracking ---
+    # Recent activity
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Recent Activity</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
-section_header("Time Tracking", "⏱️")
+    # Get recent time entries (sorted by entry_time, descending)
+    recent_entries = sorted(
+        st.session_state.time_entries,
+        key=lambda x: x.get('entry_time', ''),
+        reverse=True
+    )[:10]
 
-with st.expander("Add New Time Entry", expanded=False):
-    with st.form(key='new_time_entry_form'):
-        project = st.selectbox("Project", options=list(st.session_state.projects.keys()))
-        resource = st.text_input("Resource")
-        phase = st.selectbox("Phase", options=["planning", "fieldwork", "managerReview", "partnerReview"])
-        date_worked = st.date_input("Date")
-        hours = st.number_input("Hours", min_value=0.0, format="%.2f")
-        description = st.text_area("Description")
-        submit_button = st.form_submit_button("Add Time Entry")
+    if recent_entries:
+        recent_df = pd.DataFrame(recent_entries)
+        # Consistent phase mapping
+        phase_map = {
+            "planning": "Planning",
+            "fieldwork": "Fieldwork",
+            "managerReview": "Manager Review",
+            "partnerReview": "Partner Review"
+        }
+        recent_df['phase'] = recent_df['phase'].map(phase_map)  # Apply the mapping
 
-        if submit_button:
-            # Validate that a project is selected
-            if not project:
-                st.error("Please select a project.")
-            else:
-                new_entry = {
-                    'project': project,
-                    'resource': resource,
-                    'phase': phase,
-                    'date': date_worked.strftime("%Y-%m-%d") if date_worked else None,  # Ensure date is stored as string
-                    'hours': hours,
-                    'description': description,
-                    'entry_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                st.session_state.time_entries.append(new_entry)
-                save_data()
-                st.success("Time entry added!")
-                st.rerun()
+        recent_df['entry_time'] = pd.to_datetime(recent_df['entry_time'])
+        st.dataframe(
+            recent_df[['entry_time', 'project', 'resource', 'phase', 'hours']],
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("No time entries recorded yet.")
 
-# Time Entry List, Editing, and Deletion
-if st.session_state.time_entries:
-    st.subheader("Existing Time Entries")
-    
-    # Convert dates to strings for display, and handle potential None values
-    time_entry_list = []
+
+    # Team utilization chart
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Team Utilization</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Aggregate hours by team member (using a dictionary)
+    team_hours = {}
     for entry in st.session_state.time_entries:
-        entry_copy = entry.copy()  # Work with a copy to avoid modifying the original
-        entry_copy['date'] = entry_copy.get('date', '')  # Default to empty string if None
-        entry_copy['entry_time'] = entry_copy.get('entry_time', '')  # Same for entry_time
-        time_entry_list.append(entry_copy)
-    
-    df = pd.DataFrame(time_entry_list)
-    
-    if not df.empty:
-        # Display the DataFrame
-        st.dataframe(df, hide_index=True)
+        resource = entry.get('resource', 'Unknown')
+        hours = entry.get('hours', 0)
+        team_hours[resource] = team_hours.get(resource, 0) + hours
 
-        # Edit and Delete Time Entries
-        selected_entry_index = st.selectbox("Select Time Entry to Edit/Delete", options=range(len(st.session_state.time_entries)), format_func=lambda x: st.session_state.time_entries[x]['entry_time'])
+    if team_hours:
+        team_df = pd.DataFrame(
+            {'Team Member': list(team_hours.keys()), 'Hours': list(team_hours.values())}
+        ).sort_values('Hours', ascending=False)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Edit Time Entry"):
-                st.session_state.edit_time_entry = selected_entry_index
-        with col2:
-            if st.button("Delete Time Entry"):
-                st.session_state.delete_time_entry = selected_entry_index
+        fig = px.bar(
+            team_df,
+            y='Team Member',
+            x='Hours',
+            title='Total Hours by Team Member',
+            orientation='h',
+            color='Hours',
+            color_continuous_scale='Blues'
+        )
 
-    # Handle time entry deletion
-    if 'delete_time_entry' in st.session_state:
-        del st.session_state.time_entries[st.session_state.delete_time_entry]
-        save_data()
-        del st.session_state.delete_time_entry
-        st.success("Time entry deleted!")
-        st.rerun()  # Refresh the page
-
-    # Handle time entry editing
-    if 'edit_time_entry' in st.session_state:
-        entry_to_edit = st.session_state.time_entries[st.session_state.edit_time_entry]
-        with st.form(key='edit_time_entry_form'):
-            st.subheader("Edit Time Entry")
-            project = st.selectbox("Project", options=list(st.session_state.projects.keys()), index=list(st.session_state.projects.keys()).index(entry_to_edit['project']) if entry_to_edit['project'] in st.session_state.projects else 0 )
-            resource = st.text_input("Resource", value=entry_to_edit['resource'])
-            phase = st.selectbox("Phase", options=["planning", "fieldwork", "managerReview", "partnerReview"], index=["planning", "fieldwork", "managerReview", "partnerReview"].index(entry_to_edit['phase']) if entry_to_edit['phase'] in ["planning", "fieldwork", "managerReview", "partnerReview"] else 0)
-            date_worked = st.date_input("Date", value=datetime.strptime(entry_to_edit['date'], "%Y-%m-%d") if entry_to_edit['date'] else None)
-            hours = st.number_input("Hours", min_value=0.0, value=entry_to_edit['hours'], format="%.2f")
-            description = st.text_area("Description", value=entry_to_edit['description'])
-            submit_button = st.form_submit_button("Update Time Entry")
-
-            if submit_button:
-                entry_to_edit['project'] = project
-                entry_to_edit['resource'] = resource
-                entry_to_edit['phase'] = phase
-                entry_to_edit['date'] = date_worked.strftime("%Y-%m-%d") if date_worked else None
-                entry_to_edit['hours'] = hours
-                entry_to_edit['description'] = description
-                entry_to_edit['entry_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Update entry time
-                save_data()
-                del st.session_state.edit_time_entry
-                st.success("Time entry updated!")
-                st.rerun()
-
-# --- Team Management ---
-section_header("Team Management", "👥")
-
-with st.expander("Add New Team Member", expanded=False):
-    with st.form(key='new_team_member_form'):
-        member_name = st.text_input("Team Member Name", key='new_team_member_name')
-        role = st.selectbox("Role", options=["Staff", "Senior", "Manager", "Partner"])
-        skills = st.multiselect("Skills", options=["Audit", "Tax", "Advisory", "Technical Accounting"])
-        availability = st.number_input("Availability (hours/week)", min_value=0.0, max_value=168.0, step=0.5, value=40.0)
-        hourly_rate = st.number_input("Hourly Rate", min_value=0.0, step=0.5, value=0.0)
-        
-        # Additional team member fields as a dictionary
-        additional_info = {}
-        additional_info['start_date'] = st.date_input("Start Date")
-        additional_info['end_date'] = st.date_input("End Date", value=None)  # Allow None for ongoing
-        additional_info['notes'] = st.text_area("Notes")
-        
-        submit_button = st.form_submit_button("Add Team Member")
-
-        if submit_button:
-            if member_name:
-                 # Combine core and additional fields
-                team_member_data = {
-                    'role': role,
-                    'skills': skills,
-                    'availability_hours': availability,
-                    'hourly_rate': hourly_rate,
-                    **additional_info # Add the additional fields
-                }
-                st.session_state.team_members[member_name] = team_member_data
-                save_data()
-                st.success(f"Team member '{member_name}' added.")
-                st.rerun()
-            else:
-                st.error("Team member name is required.")
-# Team Member Listing, Editing, Deletion
-
-if st.session_state.team_members:
-    st.subheader("Team Members")
-    team_member_list = []
-    for name, data in st.session_state.team_members.items():
-        team_member_list.append({
-            "Name": name,
-            "Role": data.get('role', ''),
-            "Skills": ', '.join(data.get('skills', [])),
-            "Availability (hrs/week)": data.get('availability_hours', 40.0),
-            "Hourly Rate": data.get('hourly_rate', 0.0)
-        })
-
-    df_team = pd.DataFrame(team_member_list)
-    if not df_team.empty:
-        st.dataframe(df_team, hide_index = True)
+        fig.update_layout(
+            xaxis_title="Hours",
+            yaxis_title="",
+            height=400,
+            plot_bgcolor=COLOR_CARD_BACKGROUND,
+            paper_bgcolor=COLOR_CARD_BACKGROUND,
+            font_color=COLOR_TEXT,
+            title_font_color=COLOR_TEXT
+        )
+        fig.update_xaxes(color=COLOR_TEXT)
+        fig.update_yaxes(color=COLOR_TEXT)
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No team members found.")
+        st.info("No time entries recorded yet.")
 
 
-    selected_member = st.selectbox("Select Team Member to Edit/Delete", list(st.session_state.team_members.keys()))
-    col1, col2 = st.columns(2)
+    # Hours by audit phase (Corrected Phase Aggregation)
+    st.markdown("""
+    <div class="custom-card">
+        <h3 class="card-title">Hours by Audit Phase</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Aggregate hours by phase
+    phase_hours = {"planning": 0, "fieldwork": 0, "managerReview": 0, "partnerReview": 0}
+    for entry in st.session_state.time_entries:
+      phase = entry.get('phase')
+      if phase in phase_hours:  # Only count known phases
+          phase_hours[phase] += entry.get('hours', 0)
+
+
+    phase_data = [
+        {"Phase": phase_map[phase], "Hours": hours}  # Use the consistent mapping
+        for phase, hours in phase_hours.items()
+        if hours > 0  # Only include phases with actual hours
+    ]
+
+    if phase_data:  # Check if there's any data before creating the chart
+      phase_df = pd.DataFrame(phase_data)
+      fig = px.pie(
+          phase_df,
+          values='Hours',
+          names='Phase',
+          title='Distribution of Hours by Audit Phase',
+          hole=0.4,
+          color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]
+      )
+      fig.update_traces(textposition='inside', textinfo='percent+label')
+      fig.update_layout(
+          height=400,
+          plot_bgcolor=COLOR_CARD_BACKGROUND,
+          paper_bgcolor=COLOR_CARD_BACKGROUND,
+          font_color=COLOR_TEXT,
+          title_font_color=COLOR_TEXT
+      )
+      st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No time entries recorded yet.")
+
+def get_project_list():
+    if not st.session_state.projects:
+        return ["No projects available"]
+    return list(st.session_state.projects.keys())
+
+# Calculate budget based on inputs
+def calculate_budget(company_name, turnover, is_listed, industry_sector, controls_risk, inherent_risk, complexity, info_delay_risk):
+    # Determine audit category based on turnover
+    if turnover <= 50:
+        audit_category = "micro"
+        audit_category_display = "Micro (≤ Rs. 50 Cr)"
+    elif turnover <= 250:
+        audit_category = "small"
+        audit_category_display = "Small (Rs. 50-250 Cr)"
+    elif turnover <= 500:
+        audit_category = "medium"
+        audit_category_display = "Medium (Rs. 250-500 Cr)"
+    elif turnover <= 1000:
+        audit_category = "large"
+        audit_category_display = "Large (Rs. 500-1000 Cr)"
+    else:
+        audit_category = "veryLarge"
+        audit_category_display = "Very Large (> Rs. 1000 Cr)"
+    
+    # Get the lookup key based on size and sector
+    size_prefix = "S" if audit_category in ["micro", "small"] else "M" if audit_category == "medium" else "L" if audit_category == "large" else "VL"
+    lookup_key = size_prefix + industry_sector
+    
+    # Get baseline hours from detailed estimates or fall back to default
+    baseline_estimate = detailed_time_estimates.get(lookup_key, default_time_estimate)
+    
+    # Extract phase hours
+    base_planning = baseline_estimate["planning"]
+    base_fieldwork = baseline_estimate["fieldwork"]
+    base_manager_review = baseline_estimate["managerReview"]
+    base_partner_review = baseline_estimate["partnerReview"]
+    base_total = baseline_estimate["total"]
+    
+    # Apply 0.8 scaling factor for Micro category
+    if audit_category == "micro":
+        base_planning = round(base_planning * 0.8)
+        base_fieldwork = round(base_fieldwork * 0.8)
+        base_manager_review = round(base_manager_review * 0.8)
+        base_partner_review = round(base_partner_review * 0.8)
+        base_total = round(base_total * 0.8)
+    
+    # Risk adjustment multipliers
+    controls_risk_factor = 1 if controls_risk == 1 else (1.2 if controls_risk == 2 else 1.4)
+    inherent_risk_factor = 1 if inherent_risk == 1 else (1.25 if inherent_risk == 2 else 1.5)
+    complexity_factor = 1 if complexity == 1 else (1.3 if complexity == 2 else 1.6)
+    info_delay_factor = 1 if info_delay_risk == 1 else (1.15 if info_delay_risk == 2 else 1.3)
+    
+    # Calculate adjusted phase hours
+    adjusted_planning = round(base_planning * controls_risk_factor * inherent_risk_factor)
+    adjusted_fieldwork = round(base_fieldwork * controls_risk_factor * inherent_risk_factor * complexity_factor * info_delay_factor)
+    adjusted_manager_review = round(base_manager_review * complexity_factor)
+    adjusted_partner_review = round(base_partner_review * complexity_factor)
+    
+    # Set phase hours
+    phase_hours = {
+        "planning": adjusted_planning,
+        "fieldwork": adjusted_fieldwork,
+        "managerReview": adjusted_manager_review,
+        "partnerReview": adjusted_partner_review
+    }
+    
+    # Calculate total adjusted hours
+    total_hours = adjusted_planning + adjusted_fieldwork + adjusted_manager_review + adjusted_partner_review
+    total_days = round(total_hours / 8 * 10) / 10  # Round to 1 decimal place
+    
+    # Staff allocation
+    staff_hours = {
+        "partner": phase_hours["partnerReview"],
+        "manager": phase_hours["managerReview"],
+        "qualifiedAssistant": 0,
+        "seniorArticle": 0,
+        "juniorArticle": 0,
+        "eqcr": 0,
+    }
+    
+    # Add planning hours based on audit size
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # Partner gets 30% of planning hours for larger audits
+        staff_hours["partner"] += round(phase_hours["planning"] * 0.3)
+        # Manager gets 30% of planning hours for larger audits
+        staff_hours["manager"] += round(phase_hours["planning"] * 0.3)
+    else:
+        # For small and micro, only manager is involved in planning (no partner)
+        staff_hours["manager"] += round(phase_hours["planning"] * 0.4)
+    
+    # Qualified Assistant hours
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # For larger audits, QA gets 40% of planning
+        staff_hours["qualifiedAssistant"] = round(
+            phase_hours["planning"] * 0.4 + 
+            phase_hours["fieldwork"] * 0.3
+        )
+    else:
+        # For smaller audits, QA gets 60% of planning
+        staff_hours["qualifiedAssistant"] = round(
+            phase_hours["planning"] * 0.6 + 
+            phase_hours["fieldwork"] * 0.3
+        )
+    
+    # Senior Article hours - not allocated for Micro audits
+    if audit_category != "micro":
+        staff_hours["seniorArticle"] = round(
+            phase_hours["planning"] * 0.3 + 
+            phase_hours["fieldwork"] * 0.4
+        )
+    
+    # Junior Article hours
+    junior_article_count = 2 if audit_category == "veryLarge" else 1
+    
+    if junior_article_count == 1:
+        # Single junior article
+        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
+    else:
+        # Two junior articles for very large audits
+        staff_hours["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
+    
+    # Add EQCR hours if required
+    eqcr_required = is_listed or turnover > 1000
+    if eqcr_required:
+        staff_hours["eqcr"] = round(staff_hours["partner"] * 0.4)
+    
+    # Create detailed staff allocation by phase
+    staff_allocation_by_phase = {
+        "planning": {},
+        "fieldwork": {},
+        "managerReview": {},
+        "partnerReview": {}
+    }
+    
+    # Planning phase allocation
+    if audit_category in ["medium", "large", "veryLarge"]:
+        # For larger audits
+        staff_allocation_by_phase["planning"]["partner"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.3)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.4)
+        if audit_category != "micro":
+            staff_allocation_by_phase["planning"]["seniorArticle"] = round(phase_hours["planning"] * 0.3)
+    else:
+        # For smaller audits
+        staff_allocation_by_phase["planning"]["manager"] = round(phase_hours["planning"] * 0.4)
+        staff_allocation_by_phase["planning"]["qualifiedAssistant"] = round(phase_hours["planning"] * 0.6)
+    
+    # Fieldwork phase allocation
+    staff_allocation_by_phase["fieldwork"]["qualifiedAssistant"] = round(phase_hours["fieldwork"] * 0.3)
+    if audit_category != "micro":
+        staff_allocation_by_phase["fieldwork"]["seniorArticle"] = round(phase_hours["fieldwork"] * 0.4)
+    
+    if junior_article_count == 1:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.3)
+    else:
+        staff_allocation_by_phase["fieldwork"]["juniorArticle"] = round(phase_hours["fieldwork"] * 0.5)
+    
+    # Manager Review phase - all to manager
+    staff_allocation_by_phase["managerReview"]["manager"] = phase_hours["managerReview"]
+    
+    # Partner Review phase - all to partner
+    staff_allocation_by_phase["partnerReview"]["partner"] = phase_hours["partnerReview"]
+    
+    # EQCR if required
+    if eqcr_required:
+        staff_allocation_by_phase["partnerReview"]["eqcr"] = round(staff_hours["partner"] * 0.4)
+    
+    # Generate risk adjustment notes
+    risk_notes = [
+        f"Size-Sector Baseline: {lookup_key}{' (scaled to 80% for Micro)' if audit_category == 'micro' else ''}",
+        f"Base Hours: Planning: {base_planning}h, Fieldwork: {base_fieldwork}h, Manager Review: {base_manager_review}h, Partner Review: {base_partner_review}h",
+        f"Controls Risk: {'Low' if controls_risk == 1 else ('Medium' if controls_risk == 2 else 'High')} (factor: {controls_risk_factor:.2f})",
+        f"Inherent Risk: {'Low' if inherent_risk == 1 else ('Medium' if inherent_risk == 2 else 'High')} (factor: {inherent_risk_factor:.2f})",
+        f"Complexity: {'Low' if complexity == 1 else ('Medium' if complexity == 2 else 'High')} (factor: {complexity_factor:.2f})",
+        f"Information Delay Risk: {'Low' if info_delay_risk == 1 else ('Medium' if info_delay_risk == 2 else 'High')} (factor: {info_delay_factor:.2f})",
+    ]
+    
+    # Create result dictionary
+    result = {
+        "company_name": company_name,
+        "turnover": turnover,
+        "industry_sector": industry_sector,
+        "industry_name": industry_sectors[industry_sector]["name"],
+        "is_listed": is_listed,
+        "audit_category": audit_category,
+        "audit_category_display": audit_category_display,
+        "phase_hours": phase_hours,
+        "total_hours": total_hours,
+        "total_days": total_days,
+        "staff_hours": staff_hours,
+        "staff_allocation_by_phase": staff_allocation_by_phase,
+        "eqcr_required": eqcr_required,
+        "risk_notes": risk_notes,
+        "risk_factors": {
+            "controls_risk": controls_risk,
+            "inherent_risk": inherent_risk,
+            "complexity": complexity,
+            "info_delay_risk": info_delay_risk
+        },
+        "creation_date": datetime.now().strftime("%Y-%m-%d"),
+        "financial_year_end": None,  # To be set later
+        "team_members": {},  # To be set later
+        "actual_hours": {
+            "planning": 0,
+            "fieldwork": 0,
+            "managerReview": 0,
+            "partnerReview": 0,
+            "total": 0
+        }
+    }
+    
+    return result
+
+# --- TAB CONTENT (Using 'with' blocks for each tab) ---
+
+with tab_dashboard:
+    create_dashboard()  # Call the function to populate the dashboard *inside* its tab
+
+with tab1:
+    industry_sectors = {
+    "MFG": {"name": "Manufacturing", "factor": 1.0},
+    "TRD": {"name": "Trading", "factor": 0.9},
+    "SER": {"name": "Services", "factor": 0.95},
+    "FIN": {"name": "Financial Services", "factor": 1.3},
+    "REC": {"name": "Real Estate and Construction", "factor": 1.2},
+    "NGO": {"name": "Not for profit", "factor": 0.85}
+}
+    # Detailed time estimates based on size and sector (same as in the original code)
+    detailed_time_estimates = {
+    # Small category
+    "SMFG": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
+    "STRD": {"planning": 48, "fieldwork": 240, "managerReview": 48, "partnerReview": 24, "total": 360},
+    "SSER": {"planning": 48, "fieldwork": 240, "managerReview": 48, "partnerReview": 24, "total": 360},
+    "SREC": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
+    
+    # Medium category
+    "MMFG": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
+    "MTRD": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
+    "MSER": {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480},
+    "MFIN": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
+    "MREC": {"planning": 120, "fieldwork": 336, "managerReview": 72, "partnerReview": 72, "total": 600},
+    
+    # Large category
+    "LMFG": {"planning": 120, "fieldwork": 528, "managerReview": 96, "partnerReview": 96, "total": 840},
+    "LTRD": {"planning": 72, "fieldwork": 360, "managerReview": 72, "partnerReview": 96, "total": 600},
+    "LSER": {"planning": 72, "fieldwork": 360, "managerReview": 72, "partnerReview": 96, "total": 600},
+    "LFIN": {"planning": 120, "fieldwork": 480, "managerReview": 120, "partnerReview": 120, "total": 840},
+    "LREC": {"planning": 120, "fieldwork": 480, "managerReview": 120, "partnerReview": 120, "total": 840},
+    
+    # Very Large category
+    "VLMFG": {"planning": 120, "fieldwork": 600, "managerReview": 120, "partnerReview": 120, "total": 960},
+    "VLSER": {"planning": 72, "fieldwork": 600, "managerReview": 72, "partnerReview": 96, "total": 840},
+    "VLFIN": {"planning": 72, "fieldwork": 600, "managerReview": 144, "partnerReview": 144, "total": 960},
+    "VLREC": {"planning": 120, "fieldwork": 600, "managerReview": 120, "partnerReview": 120, "total": 960}
+}
+
+    # Default time for combinations not specified (using small manufacturing as default)
+    default_time_estimate = {"planning": 72, "fieldwork": 288, "managerReview": 72, "partnerReview": 48, "total": 480}
+
+    # Staff roles
+    staff_roles = ["Partner", "Manager", "Qualified Assistant", "Senior Article", "Junior Article", "EQCR"]
+
+    # Audit phases
+    audit_phases = ["Planning", "Fieldwork", "Manager Review", "Partner Review"]
+    
+    st.markdown("### Audit Budget Calculator")
+    st.markdown("Calculate audit budgets based on company size, industry, and risk factors.")
+    
+    # Create layout with columns for input and results
+    col1, col2 = st.columns([1, 2])
+    
+    # Input form in the left column
     with col1:
-        if st.button("Edit Team Member"):
-            st.session_state.edit_team_member = selected_member
-    with col2:
-        if st.button("Delete Team Member"):
-            st.session_state.delete_team_member = selected_member
-
-
-    # Team member deletion
-    if 'delete_team_member' in st.session_state:
-        member_to_delete = st.session_state.delete_team_member
-        del st.session_state.team_members[member_to_delete]
-
-        # Delete related schedule entries
-        st.session_state.schedule_entries = [entry for entry in st.session_state.schedule_entries if entry['team_member'] != member_to_delete]
-
-        save_data()
-        del st.session_state.delete_team_member
-        st.success(f"Team member '{member_to_delete}' and related schedule entries deleted!")
-        st.rerun()
-
-
-    # Team member editing
-    if 'edit_team_member' in st.session_state:
-        member_to_edit = st.session_state.edit_team_member
-        member_data = st.session_state.team_members[member_to_edit]
-        with st.form(key='edit_team_member_form'):
-            st.subheader(f"Editing Team Member: {member_to_edit}")
-            new_member_name = st.text_input("Team Member Name", value=member_to_edit, key='edit_team_member_name')
-            role = st.selectbox("Role", options=["Staff", "Senior", "Manager", "Partner"], index=["Staff", "Senior", "Manager", "Partner"].index(member_data.get('role')) if member_data.get('role') in ["Staff", "Senior", "Manager", "Partner"] else 0 )
-            skills = st.multiselect("Skills", options=["Audit", "Tax", "Advisory", "Technical Accounting"], default=member_data.get('skills', []))
-            availability = st.number_input("Availability (hours/week)", min_value=0.0, max_value=168.0, step=0.5, value=member_data.get('availability_hours', 40.0))
-            hourly_rate = st.number_input("Hourly Rate", min_value=0.0, step=0.5, value=member_data.get('hourly_rate', 0.0))
-
-            # Edit additional info
-            additional_info = {}
-            additional_info['start_date'] = st.date_input("Start Date", value=member_data.get('start_date'))
-            additional_info['end_date'] = st.date_input("End Date", value=member_data.get('end_date'))  # Allow None
-            additional_info['notes'] = st.text_area("Notes", value=member_data.get('notes', ''))
-
-            update_button = st.form_submit_button("Update Team Member")
-
-            if update_button:
-                if new_member_name != member_to_edit:
-                    del st.session_state.team_members[member_to_edit]
-
-                    # Update schedule entries to the new name
-                    for entry in st.session_state.schedule_entries:
-                        if entry['team_member'] == member_to_edit:
-                            entry['team_member'] = new_member_name
-                updated_member_data = {
-                    'role': role,
-                    'skills': skills,
-                    'availability_hours': availability,
-                    'hourly_rate': hourly_rate,
-                    **additional_info
+        with st.container():
+            st.markdown('<div class="custom-card">', unsafe_allow_html=True)
+            st.subheader("Audit Details")
+            
+            company_name = st.text_input("Company Name")
+            turnover = st.number_input("Turnover (in Rs. Crore)", min_value=0.0, step=10.0)
+            is_listed = st.checkbox("Listed Company")
+            
+            industry_sector = st.selectbox(
+                "Industry Sector",
+                options=list(industry_sectors.keys()),
+                format_func=lambda x: industry_sectors[x]["name"]
+            )
+            
+            # Financial year end
+            fy_end = st.date_input("Financial Year End", datetime.now().date())
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Risk factors with expanders
+        with st.expander("Risk Factors", expanded=True):
+            controls_risk = st.selectbox(
+                "Controls Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            inherent_risk = st.selectbox(
+                "Inherent Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            complexity = st.selectbox(
+                "Complexity",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+            
+            info_delay_risk = st.selectbox(
+                "Information Delay Risk",
+                options=[1, 2, 3],
+                format_func=lambda x: "Low" if x == 1 else ("Medium" if x == 2 else "High")
+            )
+        
+        # Team assignment
+        with st.expander("Team Assignment", expanded=True):
+            st.markdown("Assign specific team members to the audit")
+            
+            partner_name = st.text_input("Partner Name")
+            manager_name = st.text_input("Manager Name")
+            qa_name = st.text_input("Qualified Assistant Name")
+            senior_name = st.text_input("Senior Article Name")
+            junior_name = st.text_input("Junior Article Name")
+            eqcr_name = st.text_input("EQCR Partner Name (if applicable)")
+        
+        # Calculate and Save button
+        if st.button("Calculate and Save Project"):
+            if company_name and turnover > 0:
+                # Calculate budget
+                budget_result = calculate_budget(
+                    company_name, turnover, is_listed, industry_sector,
+                    controls_risk, inherent_risk, complexity, info_delay_risk
+                )
+                
+                # Add financial year end
+                budget_result["financial_year_end"] = fy_end.strftime("%Y-%m-%d")
+                
+                # Add team members
+                budget_result["team_members"] = {
+                    "partner": partner_name,
+                    "manager": manager_name,
+                    "qualifiedAssistant": qa_name,
+                    "seniorArticle": senior_name,
+                    "juniorArticle": junior_name,
+                    "eqcr": eqcr_name if budget_result["eqcr_required"] else ""
                 }
-
-                st.session_state.team_members[new_member_name] = updated_member_data
+                
+                # Save to session state
+                st.session_state.projects[company_name] = budget_result
+                st.session_state.current_project = company_name
+                
+                # Save to file
                 save_data()
-                del st.session_state.edit_team_member
-                st.success(f"Team member '{new_member_name}' updated.")
-                st.rerun()
-# --- Scheduling ---
-section_header("Scheduling", "📅")
-
-with st.expander("Add New Schedule Entry", expanded=False):
-    with st.form(key='new_schedule_entry_form'):
-        team_member = st.selectbox("Team Member", options=list(st.session_state.team_members.keys()))
-        project = st.selectbox("Project", options=list(st.session_state.projects.keys()))
-        start_date = st.date_input("Start Date")
-        end_date = st.date_input("End Date")
-        hours_per_day = st.number_input("Hours per Day", min_value=0.0, max_value=24.0, step=0.5, value=8.0)
-        phase = st.selectbox("Phase", options=["planning", "fieldwork", "managerReview", "partnerReview"])
-        status = st.selectbox("Status", options=["scheduled", "in progress", "completed"])
-        notes = st.text_area("Notes")
-
-        submit_button = st.form_submit_button("Add Schedule Entry")
-        if submit_button:
-            if not team_member or not project:
-                st.error("Team member and project are required.")
-            elif start_date > end_date:
-                st.error("Start date must be before end date.")
+                
+                st.success(f"Project '{company_name}' saved successfully!")
             else:
-                new_schedule_entry = {
-                    'team_member': team_member,
-                    'project': project,
-                    'start_date': start_date.strftime("%Y-%m-%d") if start_date else None,  # String format
-                    'end_date': end_date.strftime("%Y-%m-%d") if end_date else None,      # String format
-                    'hours_per_day': hours_per_day,
-                    'phase': phase,
-                    'status': status,
-                    'notes': notes,
-                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.error("Please enter company name and turnover.")
+    
+    # Results display in the right column
+    with col2:
+        if not company_name and not st.session_state.current_project:
+            st.info("Please enter company details and risk factors to generate the audit budget.")
+            
+            # Instructions card
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">How to use this calculator:</h3>
+                <ol>
+                    <li>Enter the company name and turnover</li>
+                    <li>Specify if the company is listed</li>
+                    <li>Select the industry sector</li>
+                    <li>Adjust risk factors as needed</li>
+                    <li>Enter the team members assigned to the audit</li>
+                    <li>Calculate and save the project</li>
+                    <li>Use the Time Tracking tab to log hours</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Determine which project to display
+            display_project = st.session_state.current_project if not company_name else company_name
+            
+            if display_project in st.session_state.projects:
+                project = st.session_state.projects[display_project]
+                
+                st.markdown(f"""
+                <div class="custom-card">
+                    <h3 class="card-title">Budget Summary: {project['company_name']}</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Top summary cards in custom styled boxes
+                summary_col1, summary_col2, summary_col3 = st.columns(3)
+                
+                with summary_col1:
+                    st.metric("Total Planned Hours", f"{project['total_hours']}")
+                
+                with summary_col2:
+                    st.metric("Total Planned Days", f"{round(project['total_days'])}")
+                
+                with summary_col3:
+                    actual_hours = project.get('actual_hours', {}).get('total', 0)
+                    delta = actual_hours - project['total_hours']
+                    delta_color = "normal" if delta <= 0 else "inverse"
+                    st.metric("Actual Hours Logged", f"{actual_hours}", delta=f"{delta}", delta_color=delta_color)
+                
+                # Phase hours
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Audit Phase Hours</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                phase_cols = st.columns(4)
+                
+                phase_names = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
                 }
-                st.session_state.schedule_entries.append(new_schedule_entry)
-                save_data()
-                st.success("Schedule entry added!")
-                st.rerun()
+                
+                for i, (phase_key, phase_name) in enumerate(phase_names.items()):
+                    with phase_cols[i]:
+                        planned = project['phase_hours'][phase_key]
+                        actual = project.get('actual_hours', {}).get(phase_key, 0)
+                        st.metric(
+                            phase_name,
+                            f"{planned}h planned",
+                                                        delta=f"{actual}h logged" if actual > 0 else "No hours logged"
+                        )
+                
+                # Staff allocation
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Staff Allocation</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Create a DataFrame for staff allocation table
+                staff_data = []
+                
+                # Role name mapping
+                role_display = {
+                    "partner": "Partner",
+                    "manager": "Manager",
+                    "qualifiedAssistant": "Qualified Assistant",
+                    "seniorArticle": "Senior Article",
+                    "juniorArticle": "Junior Article(s)",
+                    "eqcr": "EQCR"
+                }
+                
+                for role, hours in project['staff_hours'].items():
+                    if hours == 0:
+                        continue
+                        
+                    days = round(hours / 8)
+                    percentage = round(hours / project['total_hours'] * 100) if project['total_hours'] else 0
+                    
+                    # Get actual hours for this role
+                    actual_hours = 0
+                    if 'team_members' in project and project['team_members'].get(role):
+                        team_member = project['team_members'].get(role)
+                        # Sum hours logged by this team member for this project
+                        for entry in st.session_state.time_entries:
+                            if entry.get('project') == project['company_name'] and entry.get('resource') == team_member:
+                                actual_hours += entry.get('hours', 0)
+                    
+                    staff_data.append({
+                        "Role": role_display.get(role, role),
+                        "Staff Member": project['team_members'].get(role, "Unassigned"),
+                        "Planned Hours": hours,
+                        "Actual Hours": actual_hours,
+                        "Variance": actual_hours - hours,
+                        "% Complete": round((actual_hours / hours * 100) if hours > 0 else 0)
+                    })
+                
+                # Display staff allocation table
+                staff_df = pd.DataFrame(staff_data)
+                st.dataframe(staff_df, hide_index=True, use_container_width=True)
+                
+                # Bar chart visualization
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Staff Hours Visualization</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Prepare chart data
+                chart_data = []
+                for row in staff_data:
+                    chart_data.append({
+                        "Role": row["Role"], 
+                        "Planned Hours": row["Planned Hours"],
+                        "Actual Hours": row["Actual Hours"]
+                    })
+                
+                chart_df = pd.DataFrame(chart_data)
+                
+                if not chart_df.empty:
+                    # Create bar chart with dark mode styling
+                    fig = px.bar(
+                        chart_df, 
+                        x="Role", 
+                        y=["Planned Hours", "Actual Hours"],
+                        title="Staff Hours Allocation - Planned vs. Actual",
+                        barmode='group',
+                        color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY]
+                    )
+                    
+                    fig.update_layout(
+                        plot_bgcolor=COLOR_CARD_BACKGROUND,
+                        paper_bgcolor=COLOR_CARD_BACKGROUND,
+                        font_color=COLOR_TEXT,
+                        xaxis_title="Staff Role",
+                        yaxis_title="Hours",
+                        height=400,
+                        legend_title_font_color=COLOR_TEXT,
+                        legend_font_color=COLOR_TEXT,
+                        title_font_color=COLOR_TEXT
+                    )
+                    
+                    fig.update_xaxes(color=COLOR_TEXT)
+                    fig.update_yaxes(color=COLOR_TEXT)
+                    
+                    st.plotly_chart(fig, use_container_width=True)
 
-# Schedule Entry List, Editing, and Deletion
-if st.session_state.schedule_entries:
-    st.subheader("Scheduled Entries")
-      # Convert date fields to strings for display, handle None
-    schedule_entry_list = []
-    for entry in st.session_state.schedule_entries:
-        entry_copy = entry.copy()
-        entry_copy['start_date'] = entry_copy.get('start_date', '')
-        entry_copy['end_date'] = entry_copy.get('end_date', '')
-        entry_copy['created_at'] = entry_copy.get('created_at', '')
-        entry_copy['updated_at'] = entry_copy.get('updated_at', '')
-        schedule_entry_list.append(entry_copy)
+with tab2:
+    # ... (Your existing code for tab2 - Time Tracking) ...
+    st.markdown("### Time Tracking")
+    st.markdown("Log and view time entries for each project and team member.")
 
-    df_schedule = pd.DataFrame(schedule_entry_list)
+    # Project selection
+    project_options = get_project_list()
+    if "No projects available" not in project_options:
+        selected_project = st.selectbox(
+            "Select Project",
+            options=project_options,
+            key="time_tracking_project"
+        )
 
-    if not df_schedule.empty:
-        # Display the DataFrame
-        st.dataframe(df_schedule, hide_index = True)
-        selected_entry_index = st.selectbox("Select Schedule Entry to Edit/Delete", options=range(len(st.session_state.schedule_entries)), format_func=lambda x: f"{st.session_state.schedule_entries[x]['team_member']} - {st.session_state.schedule_entries[x]['project']} ({st.session_state.schedule_entries[x]['start_date']} to {st.session_state.schedule_entries[x]['end_date']})")
+        if selected_project in st.session_state.projects:
+            project = st.session_state.projects[selected_project]
 
-        col1, col2 = st.columns(2)
+            # Display project info
+            st.markdown(f"""
+            <div class="custom-card">
+                <h3 class="card-title">Project Information</h3>
+                <p><strong>Company:</strong> {project['company_name']}</p>
+                <p><strong>Industry:</strong> {project['industry_name']}</p>
+                <p><strong>Financial Year End:</strong> {project['financial_year_end']}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-        with col1:
-            if st.button("Edit Schedule Entry"):
-                st.session_state.edit_schedule_entry = selected_entry_index
-        with col2:
-            if st.button("Delete Schedule Entry"):
-                st.session_state.delete_schedule_entry = selected_entry_index
-    else:
-        st.info("No schedule entries found.")
+            # Create columns for time entry form
+            col1, col2 = st.columns(2)
 
-     # Handle schedule entry deletion
-    if 'delete_schedule_entry' in st.session_state:
-        del st.session_state.schedule_entries[st.session_state.delete_schedule_entry]
-        save_data()
-        del st.session_state.delete_schedule_entry
-        save_data()
-        del st.session_state.delete_schedule_entry
-        st.success("Schedule entry deleted!")
-        st.rerun()
+            with col1:
+                # Time entry form
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Add Time Entry</h3>
+                </div>
+                """, unsafe_allow_html=True)
 
-    # Handle schedule entry editing
-    if 'edit_schedule_entry' in st.session_state:
-        entry_to_edit = st.session_state.schedule_entries[st.session_state.edit_schedule_entry]
-        with st.form(key='edit_schedule_entry_form'):
-            st.subheader("Edit Schedule Entry")
-            team_member = st.selectbox("Team Member", options=list(st.session_state.team_members.keys()), index=list(st.session_state.team_members.keys()).index(entry_to_edit['team_member']) if entry_to_edit['team_member'] in st.session_state.team_members else 0)
-            project = st.selectbox("Project", options=list(st.session_state.projects.keys()), index=list(st.session_state.projects.keys()).index(entry_to_edit['project']) if entry_to_edit['project'] in st.session_state.projects else 0)
-            start_date = st.date_input("Start Date", value=datetime.strptime(entry_to_edit['start_date'], "%Y-%m-%d") if entry_to_edit['start_date'] else None)
-            end_date = st.date_input("End Date", value=datetime.strptime(entry_to_edit['end_date'], "%Y-%m-%d") if entry_to_edit['end_date'] else None)
-            hours_per_day = st.number_input("Hours per Day", min_value=0.0, max_value=24.0, step=0.5, value=entry_to_edit['hours_per_day'])
-            phase = st.selectbox("Phase", options=["planning", "fieldwork", "managerReview", "partnerReview"], index=["planning", "fieldwork", "managerReview", "partnerReview"].index(entry_to_edit['phase']) if entry_to_edit['phase'] in ["planning", "fieldwork", "managerReview", "partnerReview"] else 0)
-            status = st.selectbox("Status", options=["scheduled", "in progress", "completed"], index=["scheduled", "in progress", "completed"].index(entry_to_edit['status']) if entry_to_edit['status'] in ["scheduled", "in progress", "completed"] else 0)
-            notes = st.text_area("Notes", value=entry_to_edit['notes'])
-            submit_button = st.form_submit_button("Update Schedule Entry")
+                # Get the list of team members for this project (handling potential missing keys)
+                team_members = [v for k, v in project.get('team_members', {}).items() if v]
+                selected_resource = st.selectbox("Team Member", options=team_members)
 
-            if submit_button:
-                if start_date > end_date:
-                    st.error("Start date must be before end date.")
-                else:
-                    entry_to_edit['team_member'] = team_member
-                    entry_to_edit['project'] = project
-                    entry_to_edit['start_date'] = start_date.strftime("%Y-%m-%d") if start_date else None
-                    entry_to_edit['end_date'] = end_date.strftime("%Y-%m-%d") if end_date else None
-                    entry_to_edit['hours_per_day'] = hours_per_day
-                    entry_to_edit['phase'] = phase
-                    entry_to_edit['status'] = status
-                    entry_to_edit['notes'] = notes
-                    entry_to_edit['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Update 'updated_at'
+
+                # Map phase keys to display names
+                phase_options = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+
+                selected_phase = st.selectbox(
+                    "Audit Phase",
+                    options=list(phase_options.keys()),
+                    format_func=lambda x: phase_options[x]
+                )
+
+                entry_date = st.date_input("Date", datetime.now().date())
+                hours_spent = st.number_input("Hours Spent", min_value=0.1, max_value=24.0, value=8.0, step=0.5)
+                description = st.text_area("Description", "")
+
+                if st.button("Add Time Entry", key="add_time_entry"):
+                    # Create time entry
+                    time_entry = {
+                        "project": selected_project,
+                        "resource": selected_resource,
+                        "phase": selected_phase,
+                        "date": entry_date.strftime("%Y-%m-%d"),  # Consistent date format
+                        "hours": hours_spent,
+                        "description": description,
+                        "entry_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Consistent datetime format
+                    }
+
+                    # Add to time entries list
+                    st.session_state.time_entries.append(time_entry)
+
+                    # Update actual hours in project (handling missing 'actual_hours')
+                    if 'actual_hours' not in project:
+                        project['actual_hours'] = {
+                            "planning": 0,
+                            "fieldwork": 0,
+                            "managerReview": 0,
+                            "partnerReview": 0,
+                            "total": 0
+                        }
+                    project['actual_hours'][selected_phase] = project['actual_hours'].get(selected_phase, 0) + hours_spent
+                    project['actual_hours']['total'] = project['actual_hours'].get('total', 0) + hours_spent
+
+                    # Save data
                     save_data()
-                    del st.session_state.edit_schedule_entry
-                    st.success("Schedule entry updated!")
-                    st.rerun()
 
-# --- Reporting ---
-section_header("Reporting", "📊")
+                    st.success("Time entry added successfully!")
 
-# Budget vs. Actual
-st.subheader("Budget vs. Actual")
+            with col2:
+                # Display time entries for this project
+                st.markdown("""
+                <div class="custom-card">
+                    <h3 class="card-title">Recent Time Entries</h3>
+                </div>
+                """, unsafe_allow_html=True)
 
-# Aggregate time entries by project and phase
-project_phase_summary = {}
-for entry in st.session_state.time_entries:
-    project = entry['project']
-    phase = entry['phase']
-    hours = entry['hours']
-    if project not in project_phase_summary:
-        project_phase_summary[project] = {}
-    if phase not in project_phase_summary[project]:
-        project_phase_summary[project][phase] = 0
-    project_phase_summary[project][phase] += hours
+                # Filter time entries for this project
+                project_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
 
-# Prepare data for budget vs. actual chart
-budget_data = []
-for project, project_data in st.session_state.projects.items():
-    total_budget = project_data.get('total_budget', 0)
-    actual_hours = sum(project_phase_summary.get(project, {}).values())
+                if project_entries:
+                    entries_df = pd.DataFrame(project_entries)
+                    entries_df = entries_df.sort_values('date', ascending=False)
 
-    # Get hourly rates for team members involved in the project
-    team_member_rates = {}
-    for entry in st.session_state.time_entries:
-        if entry['project'] == project:
-            member = entry['resource']
-            if member not in team_member_rates:
-                # Find the team member in the team_members dictionary
-                for name, member_data in st.session_state.team_members.items():
-                     if name == member: #If the team member's name matches
-                        team_member_rates[member] = member_data.get('hourly_rate', 0)  # Get hourly rate or default to 0
-                        break  # Exit inner loop once found
+                    # Format columns for display
+                    display_df = entries_df[['date', 'resource', 'phase', 'hours', 'description']].copy()
+                    display_df['phase'] = display_df['phase'].map(phase_options)  # Use the phase_options mapping
 
+                    st.dataframe(display_df, hide_index=True, use_container_width=True)
+                else:
+                    st.info("No time entries found for this project.")
+    else:
+        st.info("No projects available.  Please create a project in the Budget Calculator tab first.")
 
-    # Calculate actual cost based on hours and hourly rates
-    actual_cost = 0
-    for entry in st.session_state.time_entries:
-      if entry['project'] == project:
-        member = entry['resource']
-        hourly_rate = team_member_rates.get(member, 0)
-        actual_cost += entry['hours'] * hourly_rate
+with tab3:
+    # ... (Your existing code for tab3 - Project Reports) ...
+    st.markdown("### Project Reports")
+    st.markdown("View detailed reports on project progress and time utilization.")
 
+    # Project selection
+    project_options = get_project_list()
+    if "No projects available" not in project_options:
+        selected_project = st.selectbox(
+            "Select Project",
+            options=project_options,
+            key="project_report_selection"
+        )
 
-    budget_data.append({
-        "Project": project,
-        "Type": "Budget",
-        "Value": total_budget
-    })
-    budget_data.append({
-        "Project": project,
-        "Type": "Actual",
-        "Value": actual_cost
-    })
+        if selected_project in st.session_state.projects:
+            project = st.session_state.projects[selected_project]
 
-budget_df = pd.DataFrame(budget_data)
+            # Display project overview
+            st.markdown(f"""
+            <div class="custom-card">
+                <h3 class="card-title">Project Overview: {project['company_name']}</h3>
+            </div>
+            """, unsafe_allow_html=True)
 
-if not budget_df.empty:
-    fig_budget = px.bar(budget_df, x="Project", y="Value", color="Type", barmode="group",
-                        color_discrete_map={"Budget": COLOR_PRIMARY, "Actual": COLOR_SECONDARY})
-    fig_budget = style_plotly_chart(fig_budget, "Project Budget vs. Actual Cost")  # Apply consistent styling
-    st.plotly_chart(fig_budget, use_container_width=True)
-else:
-    st.info("No data available for budget vs. actual comparison.")
+            # Create columns for metrics
+            metrics_cols = st.columns(4)
 
+            with metrics_cols[0]:
+                st.metric("Turnover", f"Rs. {project['turnover']} Cr")
+            with metrics_cols[1]:
+                st.metric("Industry", project['industry_name'])
+            with metrics_cols[2]:
+                st.metric("Category", project['audit_category_display'])
+            with metrics_cols[3]:
+                st.metric("Listed", "Yes" if project['is_listed'] else "No")
 
+            # Progress metrics
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Progress Metrics</h3>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Time by Phase
-st.subheader("Time by Phase")
+            progress_cols = st.columns(3)
+            # Calculate total progress
+            total_planned = project['total_hours']
+            total_actual = project.get('actual_hours', {}).get('total', 0)
+            total_progress = (total_actual / total_planned * 100) if total_planned > 0 else 0
 
-# Prepare data for time by phase chart
-phase_data = []
-for project, phases in project_phase_summary.items():
-    for phase, hours in phases.items():
-        phase_data.append({
-            "Project": project,
-            "Phase": phase,
-            "Hours": hours
-        })
+            with progress_cols[0]:
+                st.metric("Overall Progress", f"{round(total_progress)}%")
+            with progress_cols[1]:
+                st.metric("Planned Hours", total_planned)
 
-phase_df = pd.DataFrame(phase_data)
-
-if not phase_df.empty:
-    fig_phase = px.bar(phase_df, x="Project", y="Hours", color="Phase",
-                       color_discrete_sequence=px.colors.qualitative.Pastel) #Using a nice color palette
-    fig_phase = style_plotly_chart(fig_phase, "Time Spent per Phase")  # Consistent styling
-    st.plotly_chart(fig_phase, use_container_width=True)
-else:
-    st.info("No data available for time by phase breakdown.")
+            with progress_cols[2]:
+                delta = total_actual - total_planned
+                delta_color = "normal" if delta <= 0 else "inverse"
+                st.metric("Actual Hours", total_actual, delta=delta, delta_color=delta_color)
 
 
 
-# Time by Resource (Team Member)
-st.subheader("Time by Resource")
-resource_data = []
-for entry in st.session_state.time_entries:
-    resource_data.append({
-        "Resource": entry['resource'],
-        "Project": entry['project'],
-        "Hours": entry['hours']
-    })
-resource_df = pd.DataFrame(resource_data)
+            # Phase progress visualization
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Progress by Phase</h3>
+            </div>
+            """, unsafe_allow_html=True)
 
-if not resource_df.empty:
-    resource_summary = resource_df.groupby(['Resource', 'Project'])['Hours'].sum().reset_index()
-    fig_resource = px.bar(resource_summary, x="Resource", y="Hours", color="Project",
-                          color_discrete_sequence=px.colors.qualitative.Prism)  # Another nice palette
-    fig_resource = style_plotly_chart(fig_resource, "Time Spent by Resource")
-    st.plotly_chart(fig_resource, use_container_width=True)
-else:
-    st.info("No data available for time by resource breakdown.")
+            # Prepare data for phase progress (using a list comprehension)
+            phase_data = [
+                {
+                    "Phase": phase_name,
+                    "Planned Hours": project['phase_hours'][phase_key],
+                    "Actual Hours": project.get('actual_hours', {}).get(phase_key, 0),
+                    "Progress": (project.get('actual_hours', {}).get(phase_key, 0) / project['phase_hours'][phase_key] * 100) if project['phase_hours'][phase_key] > 0 else 0
+                }
+                for phase_key, phase_name in {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }.items()
+            ]
+
+            phase_df = pd.DataFrame(phase_data)
+
+            # Create horizontal bar chart for phase progress
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                y=phase_df['Phase'],
+                x=phase_df['Planned Hours'],
+                name='Planned Hours',
+                orientation='h',
+                marker=dict(color='rgba(30, 136, 229, 0.5)')  # Use named colors or rgba
+            ))
+            fig.add_trace(go.Bar(
+                y=phase_df['Phase'],
+                x=phase_df['Actual Hours'],
+                name='Actual Hours',
+                orientation='h',
+                marker=dict(color='rgba(0, 230, 118, 0.8)')  # Use named colors or rgba
+            ))
+
+            fig.update_layout(
+                title='Planned vs. Actual Hours by Phase',
+                barmode='overlay',
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                plot_bgcolor=COLOR_CARD_BACKGROUND,
+                paper_bgcolor=COLOR_CARD_BACKGROUND,
+                font_color=COLOR_TEXT,
+                title_font_color = COLOR_TEXT
+            )
+            fig.update_xaxes(color=COLOR_TEXT)
+            fig.update_yaxes(color=COLOR_TEXT)
+            st.plotly_chart(fig, use_container_width=True)
+
+
+            # Resource utilization
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Resource Utilization</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Get time entries by resource (using a dictionary)
+            resource_hours = {}
+            for entry in st.session_state.time_entries:
+                if entry.get('project') == selected_project:
+                    resource = entry.get('resource')
+                    hours = entry.get('hours', 0)
+                    if resource not in resource_hours:
+                        resource_hours[resource] = {
+                            "total": 0, "planning": 0, "fieldwork": 0,
+                            "managerReview": 0, "partnerReview": 0
+                        }
+                    resource_hours[resource]['total'] += hours
+                    resource_hours[resource][entry.get('phase', 'other')] += hours
+
+            # Create resource utilization data (using a list comprehension)
+            resource_data = [
+                {
+                    "Resource": resource,
+                    "Total Hours": hours['total'],
+                    "Planning": hours['planning'],
+                    "Fieldwork": hours['fieldwork'],
+                    "Manager Review": hours['managerReview'],
+                    "Partner Review": hours['partnerReview']
+                }
+                for resource, hours in resource_hours.items()
+            ]
+
+            if resource_data:
+                resource_df = pd.DataFrame(resource_data)
+                st.dataframe(resource_df, hide_index=True, use_container_width=True)
+
+                # Create stacked bar chart for resource utilization
+                fig = px.bar(
+                    resource_df,
+                    x="Resource",
+                    y=["Planning", "Fieldwork", "Manager Review", "Partner Review"],
+                    title="Hours Breakdown by Resource",
+                    barmode='stack',
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
+                )
+                fig.update_layout(
+                    xaxis_title="Team Member",
+                    yaxis_title="Hours",
+                    height=400,
+                    legend_title="Audit Phase",
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+                )
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
+
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No time entries recorded yet for this project.")
+
+
+            # Timeline view
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Project Timeline</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Filter time entries for this project
+            timeline_entries = [entry for entry in st.session_state.time_entries if entry.get('project') == selected_project]
+
+            if timeline_entries:
+                timeline_df = pd.DataFrame(timeline_entries)
+                timeline_df['date'] = pd.to_datetime(timeline_df['date'])
+
+                # Group by date and phase
+                daily_hours = timeline_df.groupby(['date', 'phase']).agg({'hours': 'sum'}).reset_index()
+
+                # Consistent phase mapping
+                phase_map = {
+                    "planning": "Planning",
+                    "fieldwork": "Fieldwork",
+                    "managerReview": "Manager Review",
+                    "partnerReview": "Partner Review"
+                }
+                daily_hours['phase'] = daily_hours['phase'].map(phase_map)  # Use consistent mapping
+
+                fig = px.line(
+                    daily_hours,
+                    x='date',
+                    y='hours',
+                    color='phase',
+                    title='Daily Hours by Phase',
+                    markers=True,
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
+                )
+                fig.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Hours Logged",
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+                )
+
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Create cumulative hours chart
+                timeline_df = timeline_df.sort_values('date')
+                timeline_df['cumulative_hours'] = timeline_df.groupby('phase')['hours'].cumsum()
+                timeline_df['phase'] = timeline_df['phase'].map(phase_map) #Use consistent mapping
+
+                fig = px.line(
+                    timeline_df,
+                    x='date',
+                    y='cumulative_hours',
+                    color='phase',
+                    title='Cumulative Hours by Phase',
+                    line_shape='hv',
+                    color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
+                )
+                fig.update_layout(
+                    xaxis_title="Date",
+                    yaxis_title="Cumulative Hours",
+                    height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+                )
+                fig.update_xaxes(color=COLOR_TEXT)
+                fig.update_yaxes(color=COLOR_TEXT)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No time entries recorded yet for this project.")
+
+
+            # Export options
+            st.markdown("""
+            <div class="custom-card">
+                <h3 class="card-title">Export Report</h3>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("Export Project Report", key="export_project_report"):
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    # Project Summary Sheet
+                    summary_data = {
+                        "Item": [
+                            "Company", "Turnover (Rs. Crore)", "Industry", "Audit Category",
+                            "Financial Year End", "Listed", "Total Planned Hours",
+                            "Total Actual Hours", "Progress"
+                        ],
+                        "Value": [
+                            project['company_name'], project['turnover'], project['industry_name'],
+                            project['audit_category_display'], project['financial_year_end'],
+                            "Yes" if project['is_listed'] else "No", total_planned,
+                            total_actual, f"{round(total_progress)}%"
+                        ]
+                    }
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+                    # Phase Progress Sheet
+                    phase_df.to_excel(writer, sheet_name='Phase Progress', index=False)
+
+                    # Resource Utilization Sheet (if data exists)
+                    if resource_data:
+                        resource_df.to_excel(writer, sheet_name='Resource Utilization', index=False)
+
+                    # Time Entries Detail Sheet (if data exists)
+                    if timeline_entries:
+                        entries_df = pd.DataFrame(timeline_entries)
+                        entries_df['phase'] = entries_df['phase'].map(phase_map)  # Consistent mapping
+                        entries_df.to_excel(writer, sheet_name='Time Entries', index=False)
+
+                # Create download link (Corrected MIME type and button styling)
+                output.seek(0)
+                b64 = base64.b64encode(output.read()).decode()
+                filename = f"project_report_{project['company_name'].replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                href = (
+                    f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
+                    f'download="{filename}" style="text-decoration:none;">'
+                    f'<button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">'
+                    f'Download Excel Report'
+                    f'</button></a>'
+                )
+                st.markdown(href, unsafe_allow_html=True)
+
+    else:
+        st.info("No projects available. Please create a project in the Budget Calculator tab first.")
+
+with tab4:
+    # ... (Your existing code for tab4 - Team Reports) ...
+    st.markdown("### Team Reports")
+    st.markdown("View reports on team member utilization across all projects.")
+
+    # Get all team members across projects (deduplicated with a set)
+    all_team_members = set()
+    for project in st.session_state.projects.values():
+        if 'team_members' in project:
+            all_team_members.update(member for member in project['team_members'].values() if member)
+
+    if all_team_members:
+        selected_member = st.selectbox(
+            "Select Team Member",
+            options=sorted(list(all_team_members))  # Sort for consistent order
+        )
+
+        st.markdown("""
+        <div class="custom-card">
+            <h3 class="card-title">Date Range</h3>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", datetime.now().replace(day=1).date())
+        with col2:
+            end_date = st.date_input("End Date", datetime.now().date())
+
+        # Filter time entries by team member and date range
+        member_entries = [
+            entry for entry in st.session_state.time_entries
+            if entry.get('resource') == selected_member
+            and start_date <= datetime.strptime(entry.get('date', '1900-01-01'), '%Y-%m-%d').date() <= end_date  # Correct date comparison
+        ]
+
+        if member_entries:
+          # Calculate total hours
+          total_hours = sum(entry.get('hours', 0) for entry in member_entries)
+
+          # Group hours by project
+          project_hours = {}
+          for entry in member_entries:
+              project = entry.get('project', 'Unknown')
+              project_hours[project] = project_hours.get(project, 0) + entry.get('hours', 0)
+
+          # Group hours by phase
+          phase_hours = {}
+          for entry in member_entries:
+              phase = entry.get('phase', 'Unknown')
+              phase_hours[phase] = phase_hours.get(phase, 0) + entry.get('hours', 0)
+
+          # Summary metrics
+          st.markdown(f"""
+          <div class="custom-card">
+              <h3 class="card-title">Summary for {selected_member}</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          metrics_cols = st.columns(3)
+          with metrics_cols[0]:
+              st.metric("Total Hours", f"{total_hours}")
+          with metrics_cols[1]:
+              st.metric("Projects", f"{len(project_hours)}")
+          with metrics_cols[2]:
+              daily_avg = total_hours / max(1, (end_date - start_date).days + 1)  # Avoid division by zero
+              st.metric("Daily Average", f"{round(daily_avg, 1)}")
+
+          # Charts
+          chart_cols = st.columns(2)
+
+          with chart_cols[0]:
+              st.markdown("""
+              <div class="custom-card">
+                  <h3 class="card-title">Hours by Project</h3>
+              </div>
+              """, unsafe_allow_html=True)
+
+              project_data = pd.DataFrame({
+                  'Project': list(project_hours.keys()),
+                  'Hours': list(project_hours.values())
+              })
+              fig = px.pie(
+                  project_data,
+                  values='Hours',
+                  names='Project',
+                  title=f'Hours by Project ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                  color_discrete_sequence=px.colors.sequential.Blues_r  # Use a named color sequence
+              )
+              fig.update_traces(textposition='inside', textinfo='percent+label')
+              fig.update_layout(
+                  height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+              )
+              st.plotly_chart(fig, use_container_width=True)
+
+          with chart_cols[1]:
+              st.markdown("""
+              <div class="custom-card">
+                  <h3 class="card-title">Hours by Phase</h3>
+              </div>
+              """, unsafe_allow_html=True)
+
+              phase_map = {  # Consistent mapping
+                  "planning": "Planning",
+                  "fieldwork": "Fieldwork",
+                  "managerReview": "Manager Review",
+                  "partnerReview": "Partner Review"
+              }
+              phase_data = pd.DataFrame({
+                  'Phase': [phase_map.get(p, p) for p in phase_hours.keys()],  # Use consistent mapping
+                  'Hours': list(phase_hours.values())
+              })
+              fig = px.pie(
+                  phase_data,
+                  values='Hours',
+                  names='Phase',
+                  title=f'Hours by Audit Phase ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+                  color_discrete_sequence=[COLOR_PRIMARY, COLOR_SECONDARY, COLOR_WARNING, "#9c27b0"]  # Use named colors
+              )
+              fig.update_traces(textposition='inside', textinfo='percent+label')
+              fig.update_layout(
+                  height=400,
+                    plot_bgcolor=COLOR_CARD_BACKGROUND,
+                    paper_bgcolor=COLOR_CARD_BACKGROUND,
+                    font_color=COLOR_TEXT,
+                    title_font_color=COLOR_TEXT
+              )
+              st.plotly_chart(fig, use_container_width=True)
+
+          # Time entries table
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Time Entries</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          entries_df = pd.DataFrame(member_entries)
+          if not entries_df.empty:
+              entries_df['date'] = pd.to_datetime(entries_df['date'])
+              entries_df = entries_df.sort_values('date', ascending=False)
+              entries_df['phase'] = entries_df['phase'].map(phase_map)  # Use consistent mapping
+              st.dataframe(
+                  entries_df[['date', 'project', 'phase', 'hours', 'description']],
+                  hide_index=True,
+                  use_container_width=True
+              )
+
+          # Daily hours chart
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Daily Hours Trend</h3>
+          </div>
+          """, unsafe_allow_html=True)
+          entries_df['date'] = pd.to_datetime(entries_df['date'])
+          daily_df = entries_df.groupby(entries_df['date'].dt.date).agg({'hours': 'sum'}).reset_index()
+          fig = px.bar(
+              daily_df,
+              x='date',
+              y='hours',
+              title=f'Daily Hours ({start_date.strftime("%d %b")} - {end_date.strftime("%d %b")})',
+              color_discrete_sequence=[COLOR_PRIMARY]  # Use named color
+          )
+          fig.update_layout(
+              xaxis_title="Date",
+              yaxis_title="Hours",
+              height=400,
+                plot_bgcolor=COLOR_CARD_BACKGROUND,
+                paper_bgcolor=COLOR_CARD_BACKGROUND,
+                font_color=COLOR_TEXT,
+                title_font_color=COLOR_TEXT
+          )
+
+          fig.update_xaxes(color=COLOR_TEXT)
+          fig.update_yaxes(color=COLOR_TEXT)
+          st.plotly_chart(fig, use_container_width=True)
+
+
+          # Export team member report
+          st.markdown("""
+          <div class="custom-card">
+              <h3 class="card-title">Export Report</h3>
+          </div>
+          """, unsafe_allow_html=True)
+
+          if st.button("Export Team Member Report", key="export_team_report"):
+              output = io.BytesIO()
+              with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                  # Summary Sheet
+                  summary_data = {
+                      "Item": ["Team Member", "Date Range", "Total Hours", "Projects", "Daily Average"],
+                      "Value": [
+                          selected_member,
+                          f"{start_date.strftime('%d %b %Y')} - {end_date.strftime('%d %b %Y')}",
+                          total_hours,
+                          len(project_hours),
+                          f"{round(daily_avg, 1)}"
+                      ]
+                  }
+                  summary_df = pd.DataFrame(summary_data)
+                  summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+                  # Project Hours Sheet
+                  project_data.to_excel(writer, sheet_name='Project Hours', index=False)
+
+                  # Phase Hours Sheet
+                  phase_data.to_excel(writer, sheet_name='Phase Hours', index=False)
+
+                  # Daily Hours Sheet
+                  daily_df.to_excel(writer, sheet_name='Daily Hours', index=False)
+
+                  # Time Entries Sheet
+                  entries_df[['date', 'project', 'phase', 'hours', 'description']].to_excel(
+                      writer, sheet_name='Time Entries', index=False
+                  )
+
+              # Create download link (Corrected MIME type and button styling)
+              output.seek(0)
+              b64 = base64.b64encode(output.read()).decode()
+              filename = f"team_report_{selected_member.replace(' ', '_').lower()}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+              href = (
+                  f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" '
+                  f'download="{filename}" style="text-decoration:none;">'
+                  f'<button style="background-color:{COLOR_PRIMARY};color:white;padding:10px 20px;border:none;border-radius:5px;cursor:pointer;">'
+                  f'Download Excel Report'
+                  f'</button></a>'
+              )
+              st.markdown(href, unsafe_allow_html=True)
+        else:
+            st.info(f"No time entries found for {selected_member} in the selected date range.")
+    else:
+        st.info("No team members assigned to any projects yet.")
+
+with tab5:
+    st.markdown("### Add New Client")
+    st.markdown("Use the form below to add a new client to the database.")
+
+    # Create a form for client details
+    with st.form("client_form"):
+        client_name = st.text_input("Client Name", "")
+        client_code = st.text_input("Client Code", "")
+        business_sector = st.text_input("Business Sector", "")
+        latest_turnover = st.number_input("Latest Turnover (in Lakhs)", min_value=0.0, step=0.1)
+        previous_year_turnover = st.number_input("Previous Year Turnover (in Lakhs)", min_value=0.0, step=0.1)
+        latest_borrowings = st.number_input("Latest Borrowings (in Lakhs)", min_value=0.0, step=0.1)
+        previous_year_borrowings = st.number_input("Previous Year Borrowings (in Lakhs)", min_value=0.0, step=0.1)
+        latest_profit_before_tax = st.number_input("Latest Profit Before Tax (in Lakhs)", min_value=0.0, step=0.1)
+        previous_year_profit_before_tax = st.number_input("Previous Year Profit Before Tax (in Lakhs)", min_value=0.0, step=0.1)
+        latest_net_worth = st.number_input("Latest Net Worth (in Lakhs)", min_value=0.0, step=0.1)
+        previous_year_net_worth = st.number_input("Previous Year Net Worth (in Lakhs)", min_value=0.0, step=0.1)
+        signing_director_1 = st.text_input("Signing Director 1", "")
+        signing_director_2 = st.text_input("Signing Director 2", "")
+        company_secretary = st.text_input("Company Secretary (if applicable)", "")
+        chief_financial_officer = st.text_input("Chief Financial Officer (if applicable)", "")
+        managing_director = st.text_input("Managing Director (if applicable)", "")
+        signing_director_3 = st.text_input("Signing Director 3 (if applicable)", "")
+
+        # Submit button
+        submitted = st.form_submit_button("Add Client")
+
+        if submitted:
+            # Collect client data
+            client_data = {
+                'client_name': client_name,
+                'client_code': client_code,
+                'business_sector': business_sector,
+                'latest_turnover': latest_turnover,
+                'previous_year_turnover': previous_year_turnover,
+                'latest_borrowings': latest_borrowings,
+                'previous_year_borrowings': previous_year_borrowings,
+                'latest_profit_before_tax': latest_profit_before_tax,
+                'previous_year_profit_before_tax': previous_year_profit_before_tax,
+                'latest_net_worth': latest_net_worth,
+                'previous_year_net_worth': previous_year_net_worth,
+                'signing_director_1': signing_director_1,
+                'signing_director_2': signing_director_2,
+                'company_secretary': company_secretary,
+                'chief_financial_officer': chief_financial_officer,
+                'managing_director': managing_director,
+                'signing_director_3': signing_director_3
+            }
+
+            # Add client to the database
+            add_client(client_data)
+            st.success(f"Client '{client_name}' added successfully!")
+
+# --- FOOTER ---
+st.markdown("---")
+st.caption("Statutory Audit Budget Calculator & Time Tracker - A tool for audit planning and resource tracking")
