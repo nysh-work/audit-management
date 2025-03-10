@@ -434,6 +434,35 @@ def load_data():
         if 'time_entries' not in st.session_state:
             st.session_state.time_entries = []
 
+# --- ADD PDF SPLITTER FUNCTION HERE ---
+def split_pdf(uploaded_file):
+    """Splits a PDF file into individual pages and returns a list of file paths to the split pages."""
+    if uploaded_file is None:
+        return None, "Please upload a PDF file."
+
+    try:
+        pdf_reader = PyPDF2.PdfReader(uploaded_file) # Changed from PdfReader to PyPDF2.PdfReader
+        num_pages = len(pdf_reader.pages)
+        split_files = []
+
+        with tempfile.TemporaryDirectory() as temp_dir: # Use a temporary directory for split files
+            for page_num in range(num_pages):
+                pdf_writer = PyPDF2.PdfWriter() # Changed from PdfWriter to PyPDF2.PdfWriter
+                pdf_writer.add_page(pdf_reader.pages[page_num])
+
+                output_filename = f"page_{page_num + 1}.pdf"
+                output_filepath = os.path.join(temp_dir, output_filename)
+
+                with open(output_filepath, 'wb') as output_pdf:
+                    pdf_writer.write(output_pdf)
+                split_files.append(output_filepath) # Store the full path
+
+            return split_files, None # Return list of file paths and no error message
+
+    except Exception as e:
+        return None, f"Error splitting PDF: {e}"
+# --- END PDF SPLITTER FUNCTION ---
+
 # Initialize session state
 if 'projects' not in st.session_state:
     st.session_state.projects = {}
@@ -1222,6 +1251,36 @@ with st.sidebar:
                     file_name="merged_document.pdf",
                     mime="application/pdf"
                 )
+
+    # --- ADD PDF SPLITTER TOOL HERE ---
+    with st.expander("PDF Splitter Tool", expanded=False):
+        st.markdown("### Split PDF into Pages")
+        st.caption("Upload a PDF file to split it into individual pages.")
+
+        uploaded_file = st.file_uploader("Choose a PDF file to split", type=["pdf"], key="pdf_splitter_uploader") # Unique key
+
+        if uploaded_file is not None:
+            if st.button("Split PDF", key="pdf_split_button"): # Unique key
+                split_file_paths, error_message = split_pdf(uploaded_file)
+
+                if error_message:
+                    st.error(error_message)
+                elif split_file_paths:
+                    st.success(f"PDF Split into {len(split_file_paths)} pages!")
+                    st.write("Download individual pages below:")
+
+                    for file_path in split_file_paths:
+                        with open(file_path, "rb") as file:
+                            file_bytes = file.read()
+                            file_name = os.path.basename(file_path) # Get just the filename for download
+
+                            st.download_button(
+                                label=f"Download {file_name}",
+                                data=file_bytes,
+                                file_name=file_name,
+                                mime="application/pdf"
+                            )
+    # --- END PDF SPLITTER TOOL ---
     st.divider()
     
     # Database management section with password protection
