@@ -1162,12 +1162,16 @@ with st.sidebar:
                                 text = pytesseract.image_to_string(image)
                                 all_text.append(text)
 
-                                # Display extracted text
-                                st.subheader(f"Page {i+1} Text")
-                                st.text_area(f"Extracted Text - Page {i+1}", text, height=150)
+                            #  NO LONGER Display extracted text *per page* here. We'll combine it later.
+                            # st.subheader(f"Page {i+1} Text")
+                            # st.text_area(f"Extracted Text - Page {i+1}", text, height=150)
 
                             # Create a combined text file for download
                             combined_text = "\n\n--- PAGE BREAK ---\n\n".join(all_text)
+
+                            # Display the combined text in *one* text area.
+                            st.subheader("Combined Extracted Text")
+                            st.text_area("All Pages", combined_text, height=400)  # Adjust height as needed
 
                             st.download_button(
                                 label="Download All Text",
