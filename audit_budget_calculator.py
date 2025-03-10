@@ -21,6 +21,7 @@ from pdf2image import convert_from_bytes  # For scanned PDFs
 import yaml
 from yaml.loader import SafeLoader
 from PIL import Image
+from materiality_calculator import create_materiality_calculator_dialog
 
 # Load the image
 icon_path = "streamlit_icon.png"
