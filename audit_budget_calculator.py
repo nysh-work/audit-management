@@ -859,7 +859,7 @@ with st.sidebar:
     # Materiality Calculator (Corrected integration)
     with st.expander("Materiality Calculator", expanded=False):
         st.markdown("### Materiality Calculator")
-        st.caption("Calculate audit materiality based on ISA 320 guidelines.")
+        st.caption("Calculate audit materiality based on SA 320 guidelines.")
         if st.button("Open Materiality Calculator"):
             create_materiality_calculator_dialog()
 
